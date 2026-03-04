@@ -1,0 +1,12 @@
+.avatar {
+  width: 96rpx;
+  height: 96rpx;
+  border-radius: 999rpx;
+  background: #eef0f3;
+}
+
+.nick {
+  font-size: 34rpx;
+  font-weight: 600;
+}
+

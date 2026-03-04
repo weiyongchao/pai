@@ -1,0 +1,48 @@
+.avatar {
+  width: 96rpx;
+  height: 96rpx;
+  border-radius: 999rpx;
+  background: #eef0f3;
+}
+
+.nick {
+  font-size: 34rpx;
+  font-weight: 700;
+}
+
+.section-title {
+  font-size: 30rpx;
+  font-weight: 700;
+  margin-bottom: 16rpx;
+}
+
+.item {
+  padding: 18rpx 0;
+  border-top: 2rpx solid #f0f1f2;
+}
+
+.item:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.win {
+  color: #07c160;
+  font-weight: 700;
+}
+
+.lose {
+  color: #ff4d4f;
+  font-weight: 700;
+}
+
+.danger-btn {
+  background: #ff4d4f;
+  color: #fff;
+}
+
+.hint {
+  margin-top: 14rpx;
+  text-align: center;
+}
+

@@ -1,0 +1,69 @@
+.avatar {
+  width: 96rpx;
+  height: 96rpx;
+  border-radius: 999rpx;
+  background: #eef0f3;
+}
+
+.nick {
+  font-size: 34rpx;
+  font-weight: 600;
+}
+
+.section-title {
+  font-size: 30rpx;
+  font-weight: 700;
+  margin-bottom: 16rpx;
+}
+
+.history-item {
+  padding: 16rpx 0;
+  border-top: 2rpx solid #f0f1f2;
+}
+
+.history-item:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.history-right {
+  gap: 14rpx;
+  align-items: center;
+}
+
+.tag {
+  padding: 6rpx 12rpx;
+  border-radius: 999rpx;
+  font-size: 24rpx;
+  font-weight: 700;
+  background: #f6f7fb;
+}
+
+.tag.win {
+  color: #07c160;
+}
+
+.tag.loss {
+  color: #ff4d4f;
+}
+
+.tag.draw {
+  color: #6b7785;
+}
+
+.num {
+  font-size: 28rpx;
+  font-weight: 700;
+}
+
+.score-pos {
+  color: #07c160;
+}
+
+.score-neg {
+  color: #ff4d4f;
+}
+
+.score-zero {
+  color: #6b7785;
+}

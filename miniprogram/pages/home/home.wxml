@@ -1,0 +1,32 @@
+<view class="container">
+  <view class="card" wx:if="{{!me}}">
+    <view class="muted">需要微信授权以使用昵称/头像与房间功能</view>
+    <view style="height: 24rpx"></view>
+    <button class="btn primary-btn" bindtap="onGetProfile">微信授权登录</button>
+  </view>
+
+  <view wx:else>
+    <view class="card">
+      <view class="row space-between">
+        <view class="row">
+          <image class="avatar" src="{{me.avatarUrl}}" mode="aspectFill" bindtap="toProfile"></image>
+          <view style="margin-left: 20rpx">
+            <view class="nick" bindtap="toProfile">{{me.nickName}}</view>
+            <view class="muted" style="margin-top: 8rpx">
+              参与 {{me.stats.gamesPlayed}} · 胜 {{me.stats.wins}} · 负 {{me.stats.losses}}
+            </view>
+          </view>
+        </view>
+        <view class="muted" bindtap="toProfile">修改资料</view>
+      </view>
+    </view>
+
+    <view style="height: 24rpx"></view>
+
+    <view class="card">
+      <button class="btn primary-btn" bindtap="onCreateRoom" loading="{{creatingRoom}}" disabled="{{creatingRoom}}">我要开房</button>
+      <button class="btn ghost-btn" bindtap="onScanJoin">扫码进房</button>
+    </view>
+  </view>
+</view>
+

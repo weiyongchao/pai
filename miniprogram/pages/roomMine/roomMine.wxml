@@ -1,0 +1,39 @@
+<view class="container">
+  <view class="card" wx:if="{{loading}}">
+    <view class="muted">加载中…</view>
+  </view>
+
+  <view wx:else>
+    <view class="card">
+      <view class="row space-between">
+        <view class="row">
+          <image class="avatar" src="{{me.avatarUrl}}" mode="aspectFill"></image>
+          <view style="margin-left: 20rpx">
+            <view class="nick">{{me.nickName}}</view>
+            <view class="muted" style="margin-top: 8rpx">本局总计：{{score}} 分</view>
+          </view>
+        </view>
+        <view class="muted">给出 {{totalGiven}} · 收到 {{totalReceived}}</view>
+      </view>
+    </view>
+
+    <view style="height: 24rpx"></view>
+
+    <view class="card">
+      <view class="section-title">对局汇总</view>
+      <view wx:if="{{items.length === 0}}" class="muted" style="text-align:center">暂无记录</view>
+      <view class="item row space-between" wx:for="{{items}}" wx:key="openid">
+        <view class="{{item.type === 'lose' ? 'lose' : 'win'}}">{{item.text}}</view>
+        <view class="muted">{{item.amount}} 分</view>
+      </view>
+    </view>
+
+    <view style="height: 24rpx"></view>
+
+    <view class="card">
+      <button class="btn danger-btn" bindtap="onLeave" loading="{{leaving}}" disabled="{{leaving}}">退房</button>
+      <view class="muted hint">退房后你将不再出现在该房间成员列表中</view>
+    </view>
+  </view>
+</view>
+

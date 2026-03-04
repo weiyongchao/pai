@@ -1,0 +1,22 @@
+<view class="container">
+  <view class="card" wx:if="{{!me}}">
+    <view class="muted">请先在首页完成授权登录</view>
+  </view>
+
+  <view wx:else>
+    <view class="card">
+      <view class="row">
+        <image class="avatar" src="{{avatarPreviewUrl}}" mode="aspectFill"></image>
+        <view style="margin-left: 20rpx; flex: 1;">
+          <view class="label muted">昵称</view>
+          <input class="input" value="{{nickName}}" placeholder="输入昵称" maxlength="20" bindinput="onNickInput" />
+        </view>
+      </view>
+
+      <view style="height: 20rpx"></view>
+
+      <button class="btn ghost-btn" bindtap="onChooseAvatar">更换头像</button>
+      <button class="btn primary-btn" bindtap="onSave" loading="{{saving}}" disabled="{{saving}}">保存</button>
+    </view>
+  </view>
+</view>

@@ -1,0 +1,21 @@
+.avatar {
+  width: 120rpx;
+  height: 120rpx;
+  border-radius: 999rpx;
+  background: #eef0f3;
+}
+
+.label {
+  font-size: 24rpx;
+}
+
+.input {
+  margin-top: 10rpx;
+  height: 72rpx;
+  line-height: 72rpx;
+  padding: 0 16rpx;
+  border: 2rpx solid #e6e8eb;
+  border-radius: 14rpx;
+  background: #fff;
+  font-size: 28rpx;
+}

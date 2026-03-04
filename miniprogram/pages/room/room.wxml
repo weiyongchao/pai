@@ -1,0 +1,82 @@
+<view class="container">
+  <view class="card" wx:if="{{loading}}">
+    <view class="muted">加载中…</view>
+  </view>
+
+  <view wx:else>
+    <view class="card">
+      <view class="section-title">成员</view>
+      <scroll-view scroll-x class="members-scroll" show-scrollbar="false">
+        <view class="members-row">
+          <view class="member" wx:for="{{members}}" wx:key="openid" bindtap="onTapMember" data-openid="{{item.openid}}">
+            <image class="avatar" src="{{item.avatarDisplayUrl}}" mode="aspectFill"></image>
+            <view class="name">{{item.nickName}}</view>
+            <view class="score {{item.score < 0 ? 'score-neg' : (item.score > 0 ? 'score-pos' : 'score-zero')}}">{{item.score}}</view>
+            <view wx:if="{{item.openid === meOpenid}}" class="me-tag">我</view>
+          </view>
+        </view>
+      </scroll-view>
+      <view class="muted tips-line">点他人头像转积分 · 点自己的头像改资料</view>
+    </view>
+
+    <view style="height: 24rpx"></view>
+
+    <view class="card">
+      <view class="section-title">流水</view>
+      <view wx:if="{{logs.length === 0}}" class="muted">暂无记录</view>
+      <view class="log" wx:for="{{logs}}" wx:key="_id">
+        <view class="muted">{{item.time}}</view>
+        <view class="log-text">{{item.text}}</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 底部操作栏 -->
+  <view wx:if="{{!loading}}" class="footer">
+    <button class="footer-btn ghost-btn" bindtap="onShowRoomCode">房间码</button>
+    <button class="footer-btn primary-btn" bindtap="toMine">我的</button>
+  </view>
+
+  <!-- 转账弹窗 -->
+  <view wx:if="{{transferModalVisible}}" class="mask" bindtap="closeTransferModal">
+    <view class="modal" catchtap="noop">
+      <view class="modal-title">向 {{transferTo.nickName}} 转移积分</view>
+      <input class="input" type="number" placeholder="输入整数，如 10" value="{{transferAmount}}" bindinput="onTransferAmountInput" />
+      <view style="height: 20rpx"></view>
+      <view class="row" style="gap: 16rpx">
+        <button class="btn ghost-btn" bindtap="closeTransferModal">取消</button>
+        <button class="btn primary-btn" bindtap="confirmTransfer" loading="{{transferring}}" disabled="{{transferring}}">确认</button>
+      </view>
+    </view>
+  </view>
+
+  <!-- 房间码弹窗 -->
+  <view wx:if="{{roomCodeVisible}}" class="mask" bindtap="closeRoomCode">
+    <view class="modal" catchtap="noop">
+      <view class="modal-title">房间小程序码</view>
+      <image class="qrcode" src="{{roomCodeUrl}}" mode="widthFix"></image>
+      <view style="height: 20rpx"></view>
+      <button class="btn primary-btn" bindtap="closeRoomCode">关闭</button>
+    </view>
+  </view>
+
+  <!-- 资料弹窗 -->
+  <view wx:if="{{profileModalVisible}}" class="mask" bindtap="closeProfileModal">
+    <view class="modal" catchtap="noop">
+      <view class="modal-title">修改资料</view>
+      <view class="row profile-row">
+        <image class="profile-avatar" src="{{profileAvatarPreviewUrl}}" mode="aspectFill" bindtap="onChooseProfileAvatar"></image>
+        <view class="profile-fields">
+          <view class="label muted">昵称</view>
+          <input class="input" value="{{profileNickName}}" placeholder="输入昵称" maxlength="20" bindinput="onProfileNickInput" />
+        </view>
+      </view>
+
+      <view style="height: 20rpx"></view>
+      <view class="row" style="gap: 16rpx">
+        <button class="btn ghost-btn" bindtap="closeProfileModal">取消</button>
+        <button class="btn primary-btn" bindtap="saveProfile" loading="{{profileSaving}}" disabled="{{profileSaving}}">保存</button>
+      </view>
+    </view>
+  </view>
+</view>

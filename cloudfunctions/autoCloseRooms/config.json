@@ -1,0 +1,10 @@
+{
+  "triggers": [
+    {
+      "name": "autoCloseRoomsTimer",
+      "type": "timer",
+      "config": "0 */5 * * * * *"
+    }
+  ]
+}
+

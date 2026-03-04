@@ -1,0 +1,11 @@
+compress_dist.py
+
+node_modules
+dist
+dist.zip
+ 
+# Ignore local tooling/config folders
+.claude/
+.cursor/
+.codex/
+.vscode/

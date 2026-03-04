@@ -1,0 +1,69 @@
+page {
+  background: #f6f7fb;
+  color: #1f2329;
+  font-size: 28rpx;
+}
+
+view,
+text,
+image,
+button,
+input,
+textarea,
+scroll-view {
+  box-sizing: border-box;
+}
+
+button::after {
+  border: none;
+}
+
+.container {
+  padding: 32rpx;
+}
+
+.card {
+  background: #ffffff;
+  border-radius: 20rpx;
+  padding: 28rpx;
+  box-shadow: 0 8rpx 24rpx rgba(0, 0, 0, 0.06);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+}
+
+.space-between {
+  justify-content: space-between;
+}
+
+.primary-btn {
+  background: #07c160;
+  color: #ffffff;
+}
+
+.ghost-btn {
+  background: #ffffff;
+  color: #1f2329;
+  border: 2rpx solid #e6e8eb;
+}
+
+.btn {
+  border-radius: 16rpx;
+  padding: 20rpx 28rpx;
+  font-size: 30rpx;
+  line-height: 1;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn + .btn {
+  margin-top: 20rpx;
+}
+
+.muted {
+  color: #6b7785;
+}
