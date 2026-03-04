@@ -4,7 +4,10 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
 const _ = db.command;
 
+const ensuredCollections = new Set();
 async function ensureCollection(name) {
+  if (ensuredCollections.has(name)) return;
+  ensuredCollections.add(name);
   try {
     await db.createCollection(name);
   } catch {
@@ -112,4 +115,3 @@ exports.main = async (event) => {
     items
   };
 };
-

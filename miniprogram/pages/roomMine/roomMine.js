@@ -16,6 +16,7 @@ Page({
   },
 
   _heartbeatTimer: null,
+  _loadTimer: null,
 
   onLoad(options) {
     const roomId = String(options.roomId || "").trim();
@@ -28,20 +29,33 @@ Page({
   },
 
   onShow() {
-    this.load();
+    if (this._loadTimer) clearTimeout(this._loadTimer);
+    // 让页面先完成过渡动画再发起接口请求，避免打开页卡顿
+    this._loadTimer = setTimeout(() => {
+      this.load();
+    }, 120);
     this.startHeartbeat();
   },
 
   onHide() {
+    if (this._loadTimer) {
+      clearTimeout(this._loadTimer);
+      this._loadTimer = null;
+    }
     this.stopHeartbeat();
   },
 
   onUnload() {
+    if (this._loadTimer) {
+      clearTimeout(this._loadTimer);
+      this._loadTimer = null;
+    }
     this.stopHeartbeat();
   },
 
   async load() {
     this.setData({ loading: true });
+    wx.showNavigationBarLoading();
     try {
       const [profileRes, summaryRes] = await Promise.all([
         callFunction("getMyProfile"),
@@ -86,6 +100,8 @@ Page({
       console.error(e);
       wx.showToast({ title: e?.message || "加载失败", icon: "none" });
       this.setData({ loading: false });
+    } finally {
+      wx.hideNavigationBarLoading();
     }
   },
 
@@ -121,6 +137,11 @@ Page({
         this.setData({ leaving: true });
         try {
           await callFunction("leaveRoom", { roomId: this.data.roomId });
+          try {
+            wx.removeStorageSync("activeRoomId");
+          } catch {
+            // ignore
+          }
           wx.showToast({ title: "已退房", icon: "success" });
           setTimeout(() => {
             wx.reLaunch({ url: "/pages/index/index" });
@@ -135,4 +156,3 @@ Page({
     });
   }
 });
-

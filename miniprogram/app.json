@@ -3,7 +3,8 @@
     "pages/index/index",
     "pages/room/room",
     "pages/roomMine/roomMine",
-    "pages/profile/profile"
+    "pages/profile/profile",
+    "pages/history/history"
   ],
   "window": {
     "navigationBarTitleText": "计分",

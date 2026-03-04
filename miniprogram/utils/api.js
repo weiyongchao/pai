@@ -9,6 +9,10 @@ function resolveEnv() {
 
 function ensureCloudInit() {
   if (cloudInited) return;
+  if (wx.__cloudInited) {
+    cloudInited = true;
+    return;
+  }
   if (!wx.cloud) {
     throw new Error("当前基础库不支持云开发，请升级微信或基础库版本。");
   }
@@ -17,6 +21,7 @@ function ensureCloudInit() {
     traceUser: true
   });
   cloudInited = true;
+  wx.__cloudInited = true;
 }
 
 function callFunction(name, data) {
@@ -29,14 +34,25 @@ function callFunction(name, data) {
     }
 
     const env = resolveEnv();
+    const startedAt = Date.now();
     wx.cloud.callFunction({
       name,
       data,
       config: env ? { env } : undefined,
-      success: (res) => resolve(res.result),
+      success: (res) => {
+        const costMs = Date.now() - startedAt;
+        if (costMs >= 800) {
+          console.info(`[cloud] ${name} ok ${costMs}ms`);
+        }
+        resolve(res.result);
+      },
       fail: (err) => {
+        const costMs = Date.now() - startedAt;
         const errMsg = String(err?.errMsg || err?.message || "");
         const currentEnvId = String(envId || "").trim();
+        if (costMs >= 800) {
+          console.warn(`[cloud] ${name} fail ${costMs}ms: ${errMsg}`);
+        }
 
         const isInvalidEnv =
           errMsg.includes("INVALID_ENV") ||

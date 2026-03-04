@@ -17,5 +17,6 @@ App({
       env: resolvedEnv,
       traceUser: true
     });
+    wx.__cloudInited = true;
   }
 });

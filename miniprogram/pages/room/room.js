@@ -21,6 +21,8 @@ Page({
 
     roomCodeVisible: false,
     roomCodeUrl: "",
+    roomCodeLoading: false,
+    roomCodeError: "",
 
     profileModalVisible: false,
     profileNickName: "",
@@ -33,8 +35,12 @@ Page({
 
   _roomCodeOpenedAt: 0,
   _heartbeatTimer: null,
+  _unloaded: false,
+  _showCodeTimer: null,
+  _enterTimer: null,
 
   async onLoad(options) {
+    this._unloaded = false;
     const roomId = this.parseRoomId(options);
     if (!roomId) {
       wx.showToast({ title: "缺少房间参数", icon: "none" });
@@ -43,22 +49,79 @@ Page({
     }
     this.setData({ roomId });
 
+    // 让页面先完成过渡动画再发起接口请求，避免打开页卡顿
+    if (this._enterTimer) clearTimeout(this._enterTimer);
+    this._enterTimer = setTimeout(() => {
+      this.enterRoom(roomId, options);
+    }, 120);
+  },
+
+  async enterRoom(roomId, options) {
+    if (this._unloaded) return;
+    wx.showNavigationBarLoading();
     try {
-      await callFunction("joinRoom", { roomId });
-      await this.refresh();
+      await this.refresh({ throwOnError: true });
+      try {
+        wx.setStorageSync("activeRoomId", roomId);
+      } catch {
+        // ignore
+      }
       if (String(options.showCode) === "1") {
-        await this.onShowRoomCode();
+        // 避免页面切换的“松手点击”误触导致弹窗立即关闭/闪一下
+        if (this._showCodeTimer) clearTimeout(this._showCodeTimer);
+        this._showCodeTimer = setTimeout(() => {
+          if (this._unloaded) return;
+          if (!this.data.roomId) return;
+          if (this.data.roomCodeVisible) return;
+          this.onShowRoomCode();
+        }, 200);
       }
     } catch (e) {
-      console.error(e);
-      if (e?.message === "请先授权登录") {
+      const msg = String(e?.message || "");
+      if (msg === "请先授权登录") {
         wx.reLaunch({
           url: `/pages/index/index?redirectRoomId=${encodeURIComponent(roomId)}`
         });
         return;
       }
-      wx.showToast({ title: e?.message || "进入房间失败", icon: "none" });
+
+      const alreadyInRoomMatch = msg.match(/你已在房间\\s*([a-z0-9]+)/i);
+      const activeRoomId = String(alreadyInRoomMatch?.[1] || "").trim();
+      if (activeRoomId) {
+        wx.showModal({
+          title: "已在其他房间",
+          content: `你当前在房间 ${activeRoomId}，需要先退房才能加入新房间。是否前往当前房间？`,
+          confirmText: "去房间",
+          cancelText: "回首页",
+          success: (res) => {
+            if (res.confirm) {
+              wx.redirectTo({
+                url: `/pages/room/room?roomId=${encodeURIComponent(activeRoomId)}`
+              });
+            } else {
+              wx.reLaunch({ url: "/pages/index/index" });
+            }
+          }
+        });
+        this.setData({ loading: false });
+        return;
+      }
+
+      const isRoomClosed = msg.includes("房间已关闭") || msg.includes("房间不存在");
+      if (isRoomClosed) {
+        try {
+          const stored = String(wx.getStorageSync("activeRoomId") || "").trim();
+          if (stored && stored === roomId) wx.removeStorageSync("activeRoomId");
+        } catch {
+          // ignore
+        }
+      }
+
+      console.error(e);
+      wx.showToast({ title: msg || "进入房间失败", icon: "none" });
       this.setData({ loading: false });
+    } finally {
+      wx.hideNavigationBarLoading();
     }
   },
 
@@ -67,10 +130,27 @@ Page({
   },
 
   onHide() {
+    if (this._enterTimer) {
+      clearTimeout(this._enterTimer);
+      this._enterTimer = null;
+    }
+    if (this._showCodeTimer) {
+      clearTimeout(this._showCodeTimer);
+      this._showCodeTimer = null;
+    }
     this.stopHeartbeat();
   },
 
   onUnload() {
+    this._unloaded = true;
+    if (this._enterTimer) {
+      clearTimeout(this._enterTimer);
+      this._enterTimer = null;
+    }
+    if (this._showCodeTimer) {
+      clearTimeout(this._showCodeTimer);
+      this._showCodeTimer = null;
+    }
     this.stopHeartbeat();
   },
 
@@ -111,8 +191,10 @@ Page({
     return "";
   },
 
-  async refresh() {
-    this.setData({ loading: true });
+  async refresh(options = {}) {
+    const silent = !!options.silent;
+    const throwOnError = !!options.throwOnError;
+    if (!silent) this.setData({ loading: true });
     try {
       const res = await callFunction("getRoomDetail", { roomId: this.data.roomId });
       const rawMembers = res.members || [];
@@ -125,25 +207,69 @@ Page({
         ...member,
         avatarDisplayUrl: avatarMap.get(member.avatarUrl) || member.avatarUrl || ""
       }));
-      const logs = (res.logs || []).map((log) => ({
-        ...log,
-        time: formatTime(log.createdAt),
-        text: log.text || ""
-      }));
+      const nameByOpenid = new Map((members || []).map((m) => [m.openid, m.nickName || m.openid?.slice(0, 6) || "成员"]));
+      const logs = (res.logs || []).map((log) => {
+        const normalized = {
+          ...log,
+          time: formatTime(log.createdAt),
+          text: log.text || ""
+        };
+        return {
+          ...normalized,
+          parts: this.buildLogParts(normalized, nameByOpenid)
+        };
+      });
       const isOwner = res.room?.ownerOpenid === res.meOpenid;
-      this.setData({
+      const patch = {
         room: res.room,
         members,
         logs,
         meOpenid: res.meOpenid,
-        isOwner,
-        loading: false
-      });
+        isOwner
+      };
+      if (!silent) patch.loading = false;
+      this.setData(patch);
     } catch (e) {
       console.error(e);
-      this.setData({ loading: false });
+      if (!silent) this.setData({ loading: false });
+      if (throwOnError) throw e;
       wx.showToast({ title: e?.message || "刷新失败", icon: "none" });
     }
+  },
+
+  buildLogParts(log, nameByOpenid) {
+    const safeName = (openid, fallback) => {
+      const key = String(openid || "").trim();
+      if (!key) return String(fallback || "成员");
+      return nameByOpenid.get(key) || key.slice(0, 6);
+    };
+
+    if (log?.type === "transfer" && log.fromOpenid && log.toOpenid) {
+      const fromName = safeName(log.fromOpenid, "成员");
+      const toName = safeName(log.toOpenid, "成员");
+      const amount = Number(log.amount || 0);
+      return [
+        { text: fromName, class: "log-name" },
+        { text: " 向 ", class: "" },
+        { text: toName, class: "log-name" },
+        { text: " 转移了 ", class: "" },
+        { text: `${Number.isFinite(amount) ? amount : ""}`, class: "log-amount" },
+        { text: " 积分", class: "" }
+      ];
+    }
+
+    const text = String(log?.text || "");
+    const idx = text.indexOf(" ");
+    if (idx > 0) {
+      const name = text.slice(0, idx);
+      const rest = text.slice(idx);
+      return [
+        { text: name, class: "log-name" },
+        { text: rest, class: "" }
+      ];
+    }
+
+    return [{ text, class: "" }];
   },
 
   onCopyRoomId() {
@@ -178,7 +304,8 @@ Page({
   },
 
   closeTransferModal() {
-    if (this.data.transferring) return;
+    const force = arguments.length > 0 ? !!arguments[0] : false;
+    if (!force && this.data.transferring) return;
     this.setData({ transferModalVisible: false, transferTo: null, transferAmount: "" });
   },
 
@@ -200,8 +327,8 @@ Page({
         toOpenid,
         amount
       });
-      this.closeTransferModal();
-      await this.refresh();
+      this.closeTransferModal(true);
+      await this.refresh({ silent: true });
       wx.showToast({ title: "已转移", icon: "success" });
     } catch (e) {
       console.error(e);
@@ -212,25 +339,45 @@ Page({
   },
 
   async onShowRoomCode() {
+    if (this.data.roomCodeLoading) return;
     try {
-      wx.showLoading({ title: "生成中" });
+      this._roomCodeOpenedAt = Date.now();
+      this.setData({
+        roomCodeVisible: true,
+        roomCodeUrl: "",
+        roomCodeLoading: true,
+        roomCodeError: ""
+      });
       const res = await callFunction("getRoomCode", { roomId: this.data.roomId });
       const fileID = res.fileID;
       const tempRes = await wx.cloud.getTempFileURL({ fileList: [fileID] });
       const url = tempRes.fileList?.[0]?.tempFileURL || "";
-      this.setData({ roomCodeVisible: true, roomCodeUrl: url });
+      this.setData({ roomCodeUrl: url });
       this._roomCodeOpenedAt = Date.now();
     } catch (e) {
-      console.error(e);
-      wx.showToast({ title: e?.message || "生成失败", icon: "none" });
+      const msg = e?.message || "生成失败";
+      this.setData({ roomCodeError: msg });
+      const isNoPermission =
+        msg.includes("-604101") ||
+        msg.includes("云调用权限") ||
+        msg.includes("无权限") ||
+        msg.toLowerCase().includes("no permission");
+      if (isNoPermission) {
+        console.warn(e);
+        wx.showToast({ title: "暂无法生成房间码，可先分享入房", icon: "none" });
+      } else {
+        console.error(e);
+        wx.showToast({ title: msg, icon: "none" });
+      }
     } finally {
-      wx.hideLoading();
+      this.setData({ roomCodeLoading: false });
     }
   },
 
   closeRoomCode() {
     if (Date.now() - (this._roomCodeOpenedAt || 0) < 350) return;
-    this.setData({ roomCodeVisible: false, roomCodeUrl: "" });
+    if (this.data.roomCodeLoading) return;
+    this.setData({ roomCodeVisible: false, roomCodeUrl: "", roomCodeLoading: false, roomCodeError: "" });
   },
 
   toMine() {
@@ -317,7 +464,7 @@ Page({
         profileAvatarUrl: "",
         profileAvatarPreviewUrl: ""
       });
-      await this.refresh();
+      await this.refresh({ silent: true });
     } catch (e) {
       console.error(e);
       wx.showToast({ title: e?.message || "保存失败", icon: "none" });

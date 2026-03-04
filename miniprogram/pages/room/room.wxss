@@ -94,6 +94,16 @@
   margin-top: 6rpx;
 }
 
+.log-name {
+  color: #1677ff;
+  font-weight: 700;
+}
+
+.log-amount {
+  color: #ff7a45;
+  font-weight: 700;
+}
+
 .mask {
   position: fixed;
   top: 0;
@@ -134,6 +144,11 @@
   width: 520rpx;
   margin: 18rpx auto 0;
   display: block;
+}
+
+.qrcode-tip {
+  margin-top: 18rpx;
+  text-align: center;
 }
 
 .mini {

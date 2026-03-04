@@ -5,7 +5,10 @@ const db = cloud.database();
 
 const MAX_MEMBERS = 20;
 
+const ensuredCollections = new Set();
 async function ensureCollection(name) {
+  if (ensuredCollections.has(name)) return;
+  ensuredCollections.add(name);
   try {
     await db.createCollection(name);
   } catch {
@@ -22,6 +25,28 @@ async function requireUser(openid) {
   }
 }
 
+async function findActiveRoomId(openid) {
+  const membersRes = await db
+    .collection("room_members")
+    .where({ openid })
+    .orderBy("updatedAt", "desc")
+    .limit(20)
+    .get();
+
+  const members = membersRes.data || [];
+  for (const member of members) {
+    if (member.active === false) continue;
+    const roomId = String(member.roomId || "").trim();
+    if (!roomId) continue;
+    const roomDoc = await db.collection("rooms").doc(roomId).get().catch(() => null);
+    if (!roomDoc || !roomDoc.data) continue;
+    if (roomDoc.data.status !== "active") continue;
+    return roomId;
+  }
+
+  return "";
+}
+
 exports.main = async (event) => {
   const { OPENID } = cloud.getWXContext();
   await ensureCollection("users");
@@ -32,6 +57,11 @@ exports.main = async (event) => {
 
   const roomId = String(event.roomId || "").trim();
   if (!roomId) throw new Error("roomId 不能为空");
+
+  const activeRoomId = await findActiveRoomId(OPENID);
+  if (activeRoomId && activeRoomId !== roomId) {
+    throw new Error(`你已在房间 ${activeRoomId}，请先退房`);
+  }
 
   const roomDoc = await db.collection("rooms").doc(roomId).get().catch(() => null);
   if (!roomDoc || !roomDoc.data) throw new Error("房间不存在");

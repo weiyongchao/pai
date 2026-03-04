@@ -24,22 +24,17 @@
     <view style="height: 24rpx"></view>
 
     <view class="card">
-      <button class="btn primary-btn" bindtap="onCreateRoom" loading="{{creatingRoom}}" disabled="{{creatingRoom}}">我要开房</button>
-      <button class="btn ghost-btn" bindtap="onScanJoin">扫码进房</button>
+      <button wx:if="{{activeRoomId}}" class="btn primary-btn" bindtap="onBackToRoom">回到房间</button>
+      <block wx:else>
+        <button class="btn primary-btn" bindtap="onCreateRoom" loading="{{creatingRoom}}" disabled="{{creatingRoom}}">我要开房</button>
+        <button class="btn ghost-btn" bindtap="onScanJoin">扫码进房</button>
+      </block>
     </view>
 
     <view style="height: 24rpx"></view>
 
     <view class="card">
-      <view class="section-title">历史战绩</view>
-      <view wx:if="{{history.length === 0}}" class="muted" style="text-align:center">暂无记录</view>
-      <view class="history-item row space-between" wx:for="{{history}}" wx:key="roomId">
-        <view class="muted">{{item.time}}</view>
-        <view class="row history-right">
-          <view class="tag {{item.resultClass}}">{{item.resultText}}</view>
-          <view class="num {{item.score > 0 ? 'score-pos' : (item.score < 0 ? 'score-neg' : 'score-zero')}}">{{item.scoreText}}</view>
-        </view>
-      </view>
+      <button class="btn ghost-btn" bindtap="toHistory">历史战绩</button>
     </view>
   </view>
 </view>

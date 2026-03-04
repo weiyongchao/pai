@@ -6,10 +6,11 @@ Page({
     me: null,
     creatingRoom: false,
     redirectRoomId: "",
-    history: []
+    activeRoomId: ""
   },
 
   _creatingRoom: false,
+  _navigating: false,
 
   onLoad(options) {
     if (options.redirectRoomId) {
@@ -23,6 +24,9 @@ Page({
   },
 
   onShow() {
+    if (this.data.creatingRoom) this.setData({ creatingRoom: false });
+    this._creatingRoom = false;
+    this._navigating = false;
     this.loadMe();
   },
 
@@ -34,20 +38,44 @@ Page({
         const map = await resolveTempUrls([me.avatarUrl]);
         me = { ...me, avatarUrl: map.get(me.avatarUrl) || "" };
       }
-      const history = this.buildHistory(me?.recentGames || []);
+
+      // 优先使用本地记录；同时尽量用服务端校准（房间自动关闭后可清理本地状态）
+      let localActiveRoomId = "";
+      try {
+        localActiveRoomId = String(wx.getStorageSync("activeRoomId") || "").trim();
+      } catch {
+        localActiveRoomId = "";
+      }
+
+      let activeRoomId = me ? localActiveRoomId : "";
+      let serverChecked = false;
+      if (me) {
+        try {
+          const activeRes = await callFunction("getMyActiveRoom");
+          serverChecked = true;
+          activeRoomId = String(activeRes?.roomId || "").trim();
+        } catch (e) {
+          // 可选能力：不影响主流程（体验版未部署时避免报错刷屏）
+          activeRoomId = localActiveRoomId;
+        }
+      }
+
+      if (serverChecked) {
+        try {
+          if (activeRoomId) wx.setStorageSync("activeRoomId", activeRoomId);
+          else wx.removeStorageSync("activeRoomId");
+        } catch {
+          // ignore
+        }
+      }
+
       this.setData(
         {
           me,
-          history
+          activeRoomId
         },
         () => {
-          if (me && this.data.redirectRoomId) {
-            const roomId = this.data.redirectRoomId;
-            this.setData({ redirectRoomId: "" });
-            wx.navigateTo({
-              url: `/pages/room/room?roomId=${encodeURIComponent(roomId)}`
-            });
-          }
+          this.maybeNavigateRedirect();
         }
       );
     } catch (e) {
@@ -56,29 +84,39 @@ Page({
     }
   },
 
-  buildHistory(list) {
-    const rows = Array.isArray(list) ? list : [];
-    return rows.slice(0, 10).map((g) => {
-      const endedAt = Number(g.endedAt || 0);
-      const score = Number(g.score || 0);
-      const result = String(g.result || "");
-      return {
-        roomId: String(g.roomId || ""),
-        endedAt,
-        time: this.formatDateTime(endedAt),
-        score,
-        scoreText: score > 0 ? `+${score}` : `${score}`,
-        resultText: result === "win" ? "胜" : result === "loss" ? "负" : "平",
-        resultClass: result === "win" ? "win" : result === "loss" ? "loss" : "draw"
-      };
+  maybeNavigateRedirect() {
+    if (!this.data.me) return;
+    const redirectRoomId = String(this.data.redirectRoomId || "").trim();
+    if (!redirectRoomId) return;
+    if (this._creatingRoom || this._navigating) return;
+
+    const activeRoomId = String(this.data.activeRoomId || "").trim();
+    const targetRoomId = activeRoomId && activeRoomId !== redirectRoomId ? activeRoomId : redirectRoomId;
+    if (activeRoomId && activeRoomId !== redirectRoomId) {
+      wx.showToast({ title: "你还在房间中，已为你打开当前房间", icon: "none" });
+    }
+
+    this.setData({ redirectRoomId: "" });
+    this._navigating = true;
+    wx.navigateTo({
+      url: `/pages/room/room?roomId=${encodeURIComponent(targetRoomId)}`,
+      fail: () => {
+        this._navigating = false;
+      }
     });
   },
 
-  formatDateTime(ts) {
-    if (!ts) return "";
-    const d = new Date(ts);
-    const pad2 = (n) => (n < 10 ? `0${n}` : `${n}`);
-    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  onBackToRoom() {
+    if (this._creatingRoom || this._navigating) return;
+    const roomId = String(this.data.activeRoomId || "").trim();
+    if (!roomId) return;
+    this._navigating = true;
+    wx.navigateTo({
+      url: `/pages/room/room?roomId=${encodeURIComponent(roomId)}`,
+      fail: () => {
+        this._navigating = false;
+      }
+    });
   },
 
   async onGetProfile() {
@@ -94,14 +132,6 @@ Page({
       await callFunction("updateProfile", { nickName, avatarUrl });
       await this.loadMe();
       wx.showToast({ title: "登录成功", icon: "success" });
-
-      if (this.data.redirectRoomId) {
-        const roomId = this.data.redirectRoomId;
-        this.setData({ redirectRoomId: "" });
-        wx.navigateTo({
-          url: `/pages/room/room?roomId=${encodeURIComponent(roomId)}`
-        });
-      }
     } catch (e) {
       if (e && e.errMsg && e.errMsg.includes("deny")) {
         wx.showToast({ title: "已取消授权", icon: "none" });
@@ -118,19 +148,31 @@ Page({
       wx.showToast({ title: "请先授权登录", icon: "none" });
       return;
     }
+    if (this.data.activeRoomId) {
+      this.onBackToRoom();
+      return;
+    }
 
     this._creatingRoom = true;
     this.setData({ creatingRoom: true });
     try {
       const res = await callFunction("createRoom");
-      const roomId = res.roomId;
+      const roomId = String(res.roomId || "").trim();
+      const existed = !!res.existed;
+      if (!roomId) throw new Error("开房失败");
+      if (existed) {
+        wx.showToast({ title: "你还在房间中，已为你打开", icon: "none" });
+      }
       wx.navigateTo({
-        url: `/pages/room/room?roomId=${encodeURIComponent(roomId)}&showCode=1`
+        url: `/pages/room/room?roomId=${encodeURIComponent(roomId)}${existed ? "" : "&showCode=1"}`,
+        fail: () => {
+          this._creatingRoom = false;
+          this.setData({ creatingRoom: false });
+        }
       });
     } catch (e) {
       console.error(e);
       wx.showToast({ title: e?.message || "开房失败", icon: "none" });
-    } finally {
       this._creatingRoom = false;
       this.setData({ creatingRoom: false });
     }
@@ -139,6 +181,10 @@ Page({
   async onScanJoin() {
     if (!this.data.me) {
       wx.showToast({ title: "请先授权登录", icon: "none" });
+      return;
+    }
+    if (this.data.activeRoomId) {
+      wx.showToast({ title: "你还在房间中，请先退房", icon: "none" });
       return;
     }
 
@@ -185,5 +231,9 @@ Page({
 
   toProfile() {
     wx.navigateTo({ url: "/pages/profile/profile" });
+  },
+
+  toHistory() {
+    wx.navigateTo({ url: "/pages/history/history" });
   }
 });

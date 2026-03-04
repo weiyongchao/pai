@@ -10,11 +10,36 @@ Page({
     saving: false
   },
 
+  _dirty: false,
+  _loadedOnce: false,
+  _loadTimer: null,
+
   onShow() {
-    this.loadMe();
+    if (this._loadedOnce && this._dirty) return;
+    this._loadedOnce = true;
+    if (this._loadTimer) clearTimeout(this._loadTimer);
+    // 让页面先完成过渡动画再发起接口请求，避免打开页卡顿
+    this._loadTimer = setTimeout(() => {
+      this.loadMe();
+    }, 120);
+  },
+
+  onHide() {
+    if (this._loadTimer) {
+      clearTimeout(this._loadTimer);
+      this._loadTimer = null;
+    }
+  },
+
+  onUnload() {
+    if (this._loadTimer) {
+      clearTimeout(this._loadTimer);
+      this._loadTimer = null;
+    }
   },
 
   async loadMe() {
+    wx.showNavigationBarLoading();
     try {
       const res = await callFunction("getMyProfile");
       if (!res.user) {
@@ -26,6 +51,10 @@ Page({
         const map = await resolveTempUrls([avatarPreviewUrl]);
         avatarPreviewUrl = map.get(avatarPreviewUrl) || "";
       }
+      if (this._dirty) {
+        this.setData({ me: res.user });
+        return;
+      }
       this.setData({
         me: res.user,
         nickName: res.user.nickName || "",
@@ -35,10 +64,13 @@ Page({
     } catch (e) {
       console.error(e);
       wx.showToast({ title: e?.message || "加载失败", icon: "none" });
+    } finally {
+      wx.hideNavigationBarLoading();
     }
   },
 
   onNickInput(e) {
+    this._dirty = true;
     this.setData({ nickName: e.detail.value });
   },
 
@@ -51,6 +83,7 @@ Page({
         try {
           const filePath = res.tempFiles?.[0]?.tempFilePath;
           if (!filePath) return;
+          this._dirty = true;
           wx.showLoading({ title: "上传中" });
           const uploadRes = await wx.cloud.uploadFile({
             cloudPath: `avatars/${Date.now()}-${Math.random().toString(16).slice(2)}.png`,

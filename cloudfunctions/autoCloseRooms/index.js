@@ -8,7 +8,10 @@ const OFFLINE_MS = 10 * 60 * 1000;
 const MAX_RECENT_GAMES = 20;
 const MAX_ROOMS_PER_RUN = 50;
 
+const ensuredCollections = new Set();
 async function ensureCollection(name) {
+  if (ensuredCollections.has(name)) return;
+  ensuredCollections.add(name);
   try {
     await db.createCollection(name);
   } catch {
@@ -174,4 +177,3 @@ exports.main = async (event) => {
 
   return { ok: true, checked: rooms.length, closed };
 };
-
