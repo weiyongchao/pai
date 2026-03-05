@@ -11,6 +11,9 @@ Page({
     totalGiven: 0,
     totalReceived: 0,
     items: [],
+    roundHeaders: [],
+    roundRows: [],
+    roundHint: "",
     loading: true,
     leaving: false
   },
@@ -57,43 +60,94 @@ Page({
     this.setData({ loading: true });
     wx.showNavigationBarLoading();
     try {
-      const [profileRes, summaryRes] = await Promise.all([
+      const [profileSettled, summarySettled] = await Promise.allSettled([
         callFunction("getMyProfile"),
         callFunction("getMyRoomSummary", { roomId: this.data.roomId })
       ]);
 
-      let me = profileRes.user || null;
-      if (!me) throw new Error("请先授权登录");
+      const profileRes = profileSettled.status === "fulfilled" ? profileSettled.value : null;
+      const summaryRes = summarySettled.status === "fulfilled" ? summarySettled.value : null;
+
+      let me = profileRes?.user || null;
+      if (!me) {
+        const err = profileSettled.status === "rejected" ? profileSettled.reason : null;
+        const msg = String(err?.message || err?.errMsg || "").trim() || "请先授权登录";
+        throw new Error(msg);
+      }
       if (me && isCloudFileId(me.avatarUrl)) {
         const map = await resolveTempUrls([me.avatarUrl]);
         me = { ...me, avatarUrl: map.get(me.avatarUrl) || "" };
       }
 
-      const items = (summaryRes.items || []).map((item) => {
-        const net = Number(item.net || 0);
-        const nickName = item.nickName || item.openid?.slice(0, 6) || "成员";
-        if (net < 0) {
+      let score = 0;
+      let totalGiven = 0;
+      let totalReceived = 0;
+      let items = [];
+      let roundHeaders = [];
+      let roundRows = [];
+      let roundHint = "";
+
+      if (summaryRes) {
+        score = Number(summaryRes.score || 0);
+        totalGiven = Number(summaryRes.totalGiven || 0);
+        totalReceived = Number(summaryRes.totalReceived || 0);
+        items = (summaryRes.items || []).map((item) => {
+          const net = Number(item.net || 0);
+          const nickName = item.nickName || item.openid?.slice(0, 6) || "成员";
+          if (net < 0) {
+            return {
+              openid: item.openid,
+              type: "lose",
+              amount: Math.abs(net),
+              text: `输给 ${nickName}`
+            };
+          }
           return {
             openid: item.openid,
-            type: "lose",
-            amount: Math.abs(net),
-            text: `输给 ${nickName}`
+            type: "win",
+            amount: net,
+            text: `赢了 ${nickName}`
           };
+        });
+
+        const rounds = Array.isArray(summaryRes.rounds) ? summaryRes.rounds : [];
+        const members = Array.isArray(summaryRes.members) ? summaryRes.members : [];
+        roundHeaders = rounds.map((r) => Number(r.index || 0)).filter((n) => Number.isFinite(n) && n > 0);
+        roundRows = members.map((m) => {
+          const openid = String(m.openid || "").trim();
+          const nickName = String(m.nickName || "").trim() || (openid ? openid.slice(0, 6) : "成员");
+          const cells = rounds.map((r) => {
+            const raw = r?.deltas ? r.deltas[openid] : 0;
+            const v = Number(raw || 0);
+            if (!Number.isFinite(v) || v === 0) return { text: "", class: "cell-empty" };
+            if (v > 0) return { text: `+${v}`, class: "cell-pos" };
+            return { text: `${v}`, class: "cell-neg" };
+          });
+          return { openid, nickName, cells };
+        });
+
+        const gapMs = Number(summaryRes.roundGapMs || 0);
+        if (gapMs > 0) {
+          const sec = Math.round(gapMs / 1000);
+          roundHint = `按“相邻交易间隔 > ${sec}s”自动分回合（仅展示最近 ${roundHeaders.length} 回）`;
+        } else if (roundHeaders.length) {
+          roundHint = `自动分回合（仅展示最近 ${roundHeaders.length} 回）`;
         }
-        return {
-          openid: item.openid,
-          type: "win",
-          amount: net,
-          text: `赢了 ${nickName}`
-        };
-      });
+      } else if (summarySettled.status === "rejected") {
+        // 汇总失败不影响头像/昵称展示
+        const msg = String(summarySettled.reason?.message || summarySettled.reason?.errMsg || "").trim();
+        if (msg) wx.showToast({ title: msg, icon: "none" });
+      }
 
       this.setData({
         me,
-        score: Number(summaryRes.score || 0),
-        totalGiven: Number(summaryRes.totalGiven || 0),
-        totalReceived: Number(summaryRes.totalReceived || 0),
+        score,
+        totalGiven,
+        totalReceived,
         items,
+        roundHeaders,
+        roundRows,
+        roundHint,
         loading: false
       });
     } catch (e) {

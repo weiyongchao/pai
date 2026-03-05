@@ -1,11 +1,16 @@
-<view class="container">
-  <view class="card" wx:if="{{!me}}">
-    <view class="muted">需要微信授权以使用昵称/头像与房间功能</view>
-    <view style="height: 24rpx"></view>
-    <button class="btn primary-btn" bindtap="onGetProfile">微信授权登录</button>
+<view class="page">
+  <view wx:if="{{checkingAuth || navigatingRoom}}" class="loading-screen">
+    <view class="loading-panel">
+      <view class="spinner"></view>
+      <view class="loading-text">{{navigatingRoom ? '正在打开房间…' : '加载中…'}}</view>
+    </view>
   </view>
 
-  <view wx:else>
+  <view wx:elif="{{!me}}" class="center-wrap">
+    <button class="btn primary-btn auth-btn" bindtap="onGetProfile">微信授权登录</button>
+  </view>
+
+  <view wx:else class="container">
     <view class="card">
       <view class="row space-between">
         <view class="row">
@@ -28,6 +33,7 @@
       <block wx:else>
         <button class="btn primary-btn" bindtap="onCreateRoom" loading="{{creatingRoom}}" disabled="{{creatingRoom}}">我要开房</button>
         <button class="btn ghost-btn" bindtap="onScanJoin">扫码进房</button>
+        <button class="btn ghost-btn" bindtap="openJoinModal">输入房间号</button>
       </block>
     </view>
 
@@ -35,6 +41,31 @@
 
     <view class="card">
       <button class="btn ghost-btn" bindtap="toHistory">历史战绩</button>
+    </view>
+  </view>
+
+  <!-- 手动输入房间号 -->
+  <view wx:if="{{joinModalVisible}}" class="mask" bindtap="closeJoinModal">
+    <view class="modal" catchtap="noop">
+      <view class="modal-title">输入房间号</view>
+      <input
+        class="input"
+        style="margin-top: 18rpx"
+        value="{{manualRoomId}}"
+        placeholder="输入房间号"
+        maxlength="32"
+        focus="{{joinInputFocus}}"
+        bindinput="onManualRoomIdInput"
+        confirm-type="go"
+        bindconfirm="onJoinByRoomId"
+      />
+      <view style="height: 20rpx"></view>
+      <view class="row" style="gap: 16rpx">
+        <button class="btn ghost-btn" bindtap="closeJoinModal">取消</button>
+        <button class="btn primary-btn" bindtap="onJoinByRoomId" loading="{{joiningById}}" disabled="{{joiningById || !manualRoomId}}">
+          确认
+        </button>
+      </view>
     </view>
   </view>
 </view>

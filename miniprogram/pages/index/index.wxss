@@ -5,6 +5,58 @@
   background: #eef0f3;
 }
 
+.page {
+  min-height: 100vh;
+}
+
+.center-wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32rpx;
+}
+
+.auth-btn {
+  width: 360rpx;
+}
+
+.input {
+  height: 72rpx;
+  line-height: 72rpx;
+  padding: 0 16rpx;
+  border: 2rpx solid #e6e8eb;
+  border-radius: 14rpx;
+  background: #fff;
+  font-size: 28rpx;
+}
+
+.mask {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+  padding: 32rpx;
+}
+
+.modal {
+  width: 640rpx;
+  background: #fff;
+  border-radius: 20rpx;
+  padding: 28rpx;
+}
+
+.modal-title {
+  font-size: 32rpx;
+  font-weight: 700;
+}
+
 .nick {
   font-size: 34rpx;
   font-weight: 600;

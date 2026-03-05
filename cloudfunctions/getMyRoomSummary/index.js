@@ -4,6 +4,11 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
 const _ = db.command;
 
+const DEFAULT_ROUND_GAP_MS = 2 * 60 * 1000; // 2 分钟：把一段连续结算视为一回合
+const MIN_ROUND_GAP_MS = 10 * 1000;
+const MAX_ROUND_GAP_MS = 10 * 60 * 1000;
+const MAX_ROUNDS = 20;
+
 const ensuredCollections = new Set();
 async function ensureCollection(name) {
   if (ensuredCollections.has(name)) return;
@@ -33,12 +38,27 @@ async function getUsersByOpenids(openids) {
     const res = await db
       .collection("users")
       .where({ _id: _.in(batch) })
+      .field({ _id: true, nickName: true })
       .get();
     for (const user of res.data || []) {
       map.set(user._id, user);
     }
   }
   return map;
+}
+
+function resolveRoundGapMs(event) {
+  const raw = Number(event?.roundGapMs);
+  const ms = Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_ROUND_GAP_MS;
+  return Math.min(MAX_ROUND_GAP_MS, Math.max(MIN_ROUND_GAP_MS, Math.floor(ms)));
+}
+
+function incObj(obj, key, delta) {
+  if (!key) return;
+  const k = String(key || "").trim();
+  if (!k) return;
+  const prev = Number(obj[k] || 0);
+  obj[k] = prev + delta;
 }
 
 exports.main = async (event) => {
@@ -57,6 +77,28 @@ exports.main = async (event) => {
   if (!memberDoc || !memberDoc.data) throw new Error("你不在该房间内");
 
   const score = Number(memberDoc.data.score || 0);
+
+  const membersRes = await db
+    .collection("room_members")
+    .where({ roomId })
+    .orderBy("joinedAt", "asc")
+    .get();
+  const memberDocs = membersRes.data || [];
+  const memberOpenids = Array.from(new Set(memberDocs.map((m) => String(m.openid || "").trim()).filter(Boolean)));
+  const memberUserMap = await getUsersByOpenids(memberOpenids);
+  const members = memberOpenids.map((openid) => {
+    const user = memberUserMap.get(openid) || {};
+    return {
+      openid,
+      nickName: user.nickName || openid.slice(0, 6)
+    };
+  });
+
+  const roundGapMs = resolveRoundGapMs(event);
+  const rounds = [];
+  let currentRound = null; // { index, startAt, endAt, deltas: { [openid]: net } }
+  let roundIndex = 0;
+  let lastTransferAt = 0;
 
   const PAGE_SIZE = 100;
   let skip = 0;
@@ -77,7 +119,29 @@ exports.main = async (event) => {
       const fromOpenid = String(log.fromOpenid || "");
       const toOpenid = String(log.toOpenid || "");
       const amount = Number(log.amount || 0);
+      const createdAt = Number(log.createdAt || 0);
       if (!Number.isFinite(amount) || amount <= 0) continue;
+
+      // 回合分组：按相邻交易间隔是否超过阈值来切分
+      if (createdAt > 0) {
+        if (!currentRound) {
+          roundIndex += 1;
+          currentRound = { index: roundIndex, startAt: createdAt, endAt: createdAt, deltas: {} };
+          lastTransferAt = createdAt;
+        } else if (createdAt - lastTransferAt > roundGapMs) {
+          rounds.push(currentRound);
+          if (rounds.length > MAX_ROUNDS) rounds.shift();
+          roundIndex += 1;
+          currentRound = { index: roundIndex, startAt: createdAt, endAt: createdAt, deltas: {} };
+          lastTransferAt = createdAt;
+        } else {
+          currentRound.endAt = createdAt;
+          lastTransferAt = createdAt;
+        }
+
+        incObj(currentRound.deltas, fromOpenid, -amount);
+        incObj(currentRound.deltas, toOpenid, amount);
+      }
 
       if (fromOpenid === OPENID && toOpenid) {
         totalGiven += amount;
@@ -89,6 +153,11 @@ exports.main = async (event) => {
     }
     if (list.length < PAGE_SIZE) break;
     skip += PAGE_SIZE;
+  }
+
+  if (currentRound) {
+    rounds.push(currentRound);
+    if (rounds.length > MAX_ROUNDS) rounds.shift();
   }
 
   const peers = Array.from(netMap.entries())
@@ -112,6 +181,9 @@ exports.main = async (event) => {
     score,
     totalGiven,
     totalReceived,
-    items
+    items,
+    members,
+    rounds,
+    roundGapMs
   };
 };

@@ -1,9 +1,12 @@
 <view class="container">
-  <view class="card" wx:if="{{loading}}">
-    <view class="muted">加载中…</view>
+  <view wx:if="{{loading}}" class="loading-screen">
+    <view class="loading-panel">
+      <view class="spinner"></view>
+      <view class="loading-text">正在进入房间…</view>
+    </view>
   </view>
 
-  <view wx:else>
+  <view wx:else class="content">
     <view class="card">
       <view class="section-title">成员</view>
       <scroll-view scroll-x class="members-scroll" show-scrollbar="false">
@@ -19,17 +22,19 @@
       <view class="muted tips-line">点他人头像转积分 · 点自己的头像改资料</view>
     </view>
 
-    <view style="height: 24rpx"></view>
-
-    <view class="card">
+    <view class="card logs-card">
       <view class="section-title">流水</view>
-      <view wx:if="{{logs.length === 0}}" class="muted">暂无记录</view>
-      <view class="log" wx:for="{{logs}}" wx:key="_id">
-        <view class="muted">{{item.time}}</view>
-        <view class="log-text">
-          <text wx:for="{{item.parts}}" wx:for-item="part" wx:for-index="idx" wx:key="idx" class="{{part.class}}">{{part.text}}</text>
+      <scroll-view scroll-y class="logs-scroll" show-scrollbar="false">
+        <view wx:if="{{logs.length === 0}}" class="muted">暂无记录</view>
+        <view wx:else>
+          <view class="log" wx:for="{{logs}}" wx:key="_id">
+            <view class="muted">{{item.time}}</view>
+            <view class="log-text">
+              <text wx:for="{{item.parts}}" wx:for-item="part" wx:for-index="idx" wx:key="idx" class="{{part.class}}">{{part.text}}</text>
+            </view>
+          </view>
         </view>
-      </view>
+      </scroll-view>
     </view>
   </view>
 
@@ -57,10 +62,18 @@
     <view class="modal" catchtap="noop">
       <view class="modal-title">房间小程序码</view>
       <image wx:if="{{roomCodeUrl}}" class="qrcode" src="{{roomCodeUrl}}" mode="widthFix"></image>
-      <view wx:else class="muted qrcode-tip">{{roomCodeLoading ? '生成中…' : (roomCodeError || '暂不可用')}}</view>
+      <view wx:else class="muted qrcode-tip">
+        <view wx:if="{{roomCodeLoading}}" class="loading-inline">
+          <view class="spinner spinner-sm"></view>
+          <text>生成中…</text>
+        </view>
+        <text wx:else>{{roomCodeError || '暂不可用'}}</text>
+      </view>
       <view style="height: 20rpx"></view>
+      <button class="btn primary-btn" open-type="share">分享给好友</button>
+      <view style="height: 16rpx"></view>
       <view class="row" style="gap: 16rpx">
-        <button class="btn primary-btn" open-type="share">分享给好友</button>
+        <button class="btn ghost-btn" bindtap="onCopyRoomId">复制房间号</button>
         <button class="btn ghost-btn" bindtap="closeRoomCode">关闭</button>
       </view>
     </view>

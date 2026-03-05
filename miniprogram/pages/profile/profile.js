@@ -1,5 +1,6 @@
 const { callFunction } = require("../../utils/api");
 const { isCloudFileId, resolveTempUrls } = require("../../utils/cloudFile");
+const { compressImageForUpload } = require("../../utils/image");
 
 Page({
   data: {
@@ -11,11 +12,12 @@ Page({
   },
 
   _dirty: false,
+  _nickDirty: false,
+  _avatarDirty: false,
   _loadedOnce: false,
   _loadTimer: null,
 
   onShow() {
-    if (this._loadedOnce && this._dirty) return;
     this._loadedOnce = true;
     if (this._loadTimer) clearTimeout(this._loadTimer);
     // 让页面先完成过渡动画再发起接口请求，避免打开页卡顿
@@ -39,7 +41,8 @@ Page({
   },
 
   async loadMe() {
-    wx.showNavigationBarLoading();
+    const isDirty = !!this._dirty;
+    if (!isDirty) wx.showNavigationBarLoading();
     try {
       const res = await callFunction("getMyProfile");
       if (!res.user) {
@@ -51,8 +54,16 @@ Page({
         const map = await resolveTempUrls([avatarPreviewUrl]);
         avatarPreviewUrl = map.get(avatarPreviewUrl) || "";
       }
-      if (this._dirty) {
-        this.setData({ me: res.user });
+      if (isDirty) {
+        const patch = { me: res.user };
+        if (!this._nickDirty) {
+          patch.nickName = res.user.nickName || "";
+        }
+        if (!this._avatarDirty) {
+          patch.avatarUrl = res.user.avatarUrl || "";
+          patch.avatarPreviewUrl = avatarPreviewUrl;
+        }
+        this.setData(patch);
         return;
       }
       this.setData({
@@ -65,12 +76,13 @@ Page({
       console.error(e);
       wx.showToast({ title: e?.message || "加载失败", icon: "none" });
     } finally {
-      wx.hideNavigationBarLoading();
+      if (!isDirty) wx.hideNavigationBarLoading();
     }
   },
 
   onNickInput(e) {
     this._dirty = true;
+    this._nickDirty = true;
     this.setData({ nickName: e.detail.value });
   },
 
@@ -84,10 +96,13 @@ Page({
           const filePath = res.tempFiles?.[0]?.tempFilePath;
           if (!filePath) return;
           this._dirty = true;
+          this._avatarDirty = true;
+          wx.showLoading({ title: "处理中" });
+          const compressed = await compressImageForUpload(filePath, { maxBytes: 350 * 1024 });
           wx.showLoading({ title: "上传中" });
           const uploadRes = await wx.cloud.uploadFile({
-            cloudPath: `avatars/${Date.now()}-${Math.random().toString(16).slice(2)}.png`,
-            filePath
+            cloudPath: `avatars/${Date.now()}-${Math.random().toString(16).slice(2)}.${compressed.ext || "jpg"}`,
+            filePath: compressed.filePath || filePath
           });
           const map = await resolveTempUrls([uploadRes.fileID]);
           this.setData({

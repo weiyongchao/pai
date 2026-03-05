@@ -1,10 +1,13 @@
 <view class="container">
-  <view class="card" wx:if="{{loading}}">
-    <view class="muted">加载中…</view>
+  <view wx:if="{{loading}}" class="loading-screen">
+    <view class="loading-panel">
+      <view class="spinner"></view>
+      <view class="loading-text">加载中…</view>
+    </view>
   </view>
 
   <view wx:else>
-    <view class="card">
+    <view class="card" wx:if="{{me}}">
       <view class="row space-between">
         <view class="row">
           <image class="avatar" src="{{me.avatarUrl}}" mode="aspectFill"></image>
@@ -15,6 +18,10 @@
         </view>
         <view class="muted">给出 {{totalGiven}} · 收到 {{totalReceived}}</view>
       </view>
+    </view>
+
+    <view class="card" wx:else>
+      <view class="muted">请先在首页完成授权登录</view>
     </view>
 
     <view style="height: 24rpx"></view>
@@ -31,9 +38,30 @@
     <view style="height: 24rpx"></view>
 
     <view class="card">
+      <view class="section-title">回合总览</view>
+      <view wx:if="{{roundHeaders.length === 0}}" class="muted" style="text-align:center">暂无回合数据</view>
+      <scroll-view wx:else scroll-x class="round-scroll" show-scrollbar="false">
+        <view class="round-table">
+          <view class="round-row round-header">
+            <view class="round-cell round-name">用户</view>
+            <view class="round-cell" wx:for="{{roundHeaders}}" wx:key="*this">第{{item}}回</view>
+          </view>
+          <view class="round-row" wx:for="{{roundRows}}" wx:key="openid">
+            <view class="round-cell round-name">{{item.nickName}}</view>
+            <view class="round-cell {{cell.class}}" wx:for="{{item.cells}}" wx:for-item="cell" wx:for-index="idx" wx:key="idx">
+              {{cell.text}}
+            </view>
+          </view>
+        </view>
+      </scroll-view>
+      <view wx:if="{{roundHint}}" class="muted round-hint">{{roundHint}}</view>
+    </view>
+
+    <view style="height: 24rpx"></view>
+
+    <view class="card">
       <button class="btn danger-btn" bindtap="onLeave" loading="{{leaving}}" disabled="{{leaving}}">退房</button>
       <view class="muted hint">退房后你将不再出现在该房间成员列表中</view>
     </view>
   </view>
 </view>
-

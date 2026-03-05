@@ -67,3 +67,80 @@ button::after {
 .muted {
   color: #6b7785;
 }
+
+.loading-screen {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32rpx;
+  background: linear-gradient(180deg, #f6f7fb 0%, #ffffff 100%);
+  z-index: 1000;
+}
+
+.loading-panel {
+  width: 560rpx;
+  max-width: 100%;
+  padding: 32rpx 28rpx;
+  border-radius: 24rpx;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 12rpx 36rpx rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  animation: pop-in 0.18s ease-out both;
+}
+
+.spinner {
+  width: 72rpx;
+  height: 72rpx;
+  border-radius: 999rpx;
+  border: 6rpx solid rgba(7, 193, 96, 0.16);
+  border-top-color: #07c160;
+  animation: spin 0.9s linear infinite;
+}
+
+.spinner-sm {
+  width: 36rpx;
+  height: 36rpx;
+  border-width: 4rpx;
+}
+
+.loading-text {
+  margin-top: 18rpx;
+  color: #6b7785;
+  font-size: 28rpx;
+  font-weight: 600;
+  text-align: center;
+}
+
+.loading-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14rpx;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(12rpx) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}

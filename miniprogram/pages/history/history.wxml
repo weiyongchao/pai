@@ -1,6 +1,9 @@
 <view class="container">
-  <view class="card" wx:if="{{loading}}">
-    <view class="muted">加载中…</view>
+  <view wx:if="{{loading}}" class="loading-screen">
+    <view class="loading-panel">
+      <view class="spinner"></view>
+      <view class="loading-text">加载中…</view>
+    </view>
   </view>
 
   <view wx:else>

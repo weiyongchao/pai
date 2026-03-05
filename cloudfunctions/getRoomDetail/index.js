@@ -5,16 +5,7 @@ const db = cloud.database();
 const _ = db.command;
 
 const MAX_MEMBERS = 20;
-const ensuredCollections = new Set();
-async function ensureCollection(name) {
-  if (ensuredCollections.has(name)) return;
-  ensuredCollections.add(name);
-  try {
-    await db.createCollection(name);
-  } catch {
-    // ignore
-  }
-}
+const SEEN_TOUCH_MIN_INTERVAL_MS = 15 * 1000;
 
 async function requireUser(openid) {
   try {
@@ -28,20 +19,30 @@ async function requireUser(openid) {
 async function findActiveRoomId(openid) {
   const membersRes = await db
     .collection("room_members")
-    .where({ openid })
+    .where({ openid, active: _.neq(false) })
     .orderBy("updatedAt", "desc")
     .limit(20)
     .get();
 
   const members = membersRes.data || [];
+  const roomIds = Array.from(
+    new Set(
+      members
+        .map((m) => String(m.roomId || "").trim())
+        .filter(Boolean)
+    )
+  );
+  if (roomIds.length === 0) return "";
+
+  const roomsRes = await db
+    .collection("rooms")
+    .where({ _id: _.in(roomIds) })
+    .get()
+    .catch(() => ({ data: [] }));
+  const activeRooms = new Set((roomsRes.data || []).filter((r) => r.status === "active").map((r) => String(r._id || "").trim()));
   for (const member of members) {
-    if (member.active === false) continue;
     const roomId = String(member.roomId || "").trim();
-    if (!roomId) continue;
-    const roomDoc = await db.collection("rooms").doc(roomId).get().catch(() => null);
-    if (!roomDoc || !roomDoc.data) continue;
-    if (roomDoc.data.status !== "active") continue;
-    return roomId;
+    if (roomId && activeRooms.has(roomId)) return roomId;
   }
 
   return "";
@@ -56,6 +57,7 @@ async function getUsersByOpenids(openids) {
     const res = await db
       .collection("users")
       .where({ _id: _.in(batch) })
+      .field({ _id: true, nickName: true, avatarUrl: true })
       .get();
     for (const user of res.data || []) {
       map.set(user._id, user);
@@ -66,12 +68,7 @@ async function getUsersByOpenids(openids) {
 
 exports.main = async (event) => {
   const { OPENID } = cloud.getWXContext();
-  await ensureCollection("users");
-  await ensureCollection("rooms");
-  await ensureCollection("room_members");
-  await ensureCollection("room_logs");
-  const me = await requireUser(OPENID);
-
+  if (event && event.warmup) return { ok: true, warmup: true };
   const roomId = String(event.roomId || "").trim();
   if (!roomId) throw new Error("roomId 不能为空");
 
@@ -79,14 +76,26 @@ exports.main = async (event) => {
   if (!roomDoc || !roomDoc.data) throw new Error("房间不存在");
   if (roomDoc.data.status !== "active") throw new Error("房间已关闭");
 
-  const activeRoomId = await findActiveRoomId(OPENID);
-  if (activeRoomId && activeRoomId !== roomId) {
-    throw new Error(`你已在房间 ${activeRoomId}，请先退房`);
-  }
-
   const memberId = `${roomId}_${OPENID}`;
   const memberRef = db.collection("room_members").doc(memberId);
   const meMember = await memberRef.get().catch(() => null);
+
+  const needJoin = !meMember || !meMember.data || meMember.data.active === false;
+  let me = null;
+  if (needJoin) {
+    // 需要入房/重新入房时才强制校验授权并取昵称（用于写入 join 流水）
+    me = await requireUser(OPENID);
+  }
+
+  // 性能优化：只有在需要“入房/重新入房”时才检查是否已在其他房间
+  // 已在当前房间内刷新数据不需要做全局扫描（findActiveRoomId 会触发多次 rooms 读取）
+  if (needJoin) {
+    const activeRoomId = await findActiveRoomId(OPENID);
+    if (activeRoomId && activeRoomId !== roomId) {
+      throw new Error(`你已在房间 ${activeRoomId}，请先退房`);
+    }
+  }
+
   if (!meMember || !meMember.data) {
     const membersRes = await db.collection("room_members").where({ roomId }).get();
     const activeCount = (membersRes.data || []).filter((m) => m.active !== false).length;
@@ -131,13 +140,37 @@ exports.main = async (event) => {
         text: `${me.nickName} 重新加入房间`
       }
     });
+  } else {
+    const ts = Date.now();
+    const lastSeenAt = Number(meMember.data.lastSeenAt || meMember.data.updatedAt || 0);
+    if (!lastSeenAt || ts - lastSeenAt >= SEEN_TOUCH_MIN_INTERVAL_MS) {
+      await memberRef
+        .update({
+          data: {
+            lastSeenAt: ts,
+            updatedAt: ts
+          }
+        })
+        .catch(() => null);
+    }
   }
 
-  const membersRes = await db
-    .collection("room_members")
-    .where({ roomId })
-    .orderBy("joinedAt", "asc")
-    .get();
+  const [membersRes, logsRes] = await Promise.all([
+    db
+      .collection("room_members")
+      .where({ roomId })
+      .orderBy("joinedAt", "asc")
+      .field({ openid: true, score: true, active: true, joinedAt: true })
+      .get(),
+    db
+      .collection("room_logs")
+      .where({ roomId })
+      .orderBy("createdAt", "desc")
+      .limit(50)
+      .field({ roomId: true, type: true, fromOpenid: true, toOpenid: true, amount: true, createdAt: true, text: true })
+      .get()
+  ]);
+
   const members = (membersRes.data || []).filter((m) => m.active !== false);
   const openids = members.map((m) => m.openid);
 
@@ -152,12 +185,6 @@ exports.main = async (event) => {
     };
   });
 
-  const logsRes = await db
-    .collection("room_logs")
-    .where({ roomId })
-    .orderBy("createdAt", "desc")
-    .limit(50)
-    .get();
   const logs = (logsRes.data || []).reverse();
 
   return {

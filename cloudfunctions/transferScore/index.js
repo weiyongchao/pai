@@ -4,34 +4,14 @@ cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
 const _ = db.command;
 
-const ensuredCollections = new Set();
-async function ensureCollection(name) {
-  if (ensuredCollections.has(name)) return;
-  ensuredCollections.add(name);
-  try {
-    await db.createCollection(name);
-  } catch {
-    // ignore
-  }
-}
-
-async function requireUser(openid) {
-  try {
-    const doc = await db.collection("users").doc(openid).get();
-    return doc.data;
-  } catch {
-    throw new Error("请先授权登录");
-  }
-}
-
 exports.main = async (event) => {
   const { OPENID } = cloud.getWXContext();
   const fromOpenid = OPENID;
-  await ensureCollection("users");
-  await ensureCollection("rooms");
-  await ensureCollection("room_members");
-  await ensureCollection("room_logs");
-  const fromUser = await requireUser(fromOpenid);
+
+  // 预热：用于减少首次真实转账时的冷启动影响（前端可后台调用，不做任何写操作）
+  if (event && event.warmup) {
+    return { ok: true, warmup: true };
+  }
 
   const roomId = String(event.roomId || "").trim();
   const toOpenid = String(event.toOpenid || "").trim();
@@ -41,8 +21,6 @@ exports.main = async (event) => {
   if (!toOpenid) throw new Error("toOpenid 不能为空");
   if (toOpenid === fromOpenid) throw new Error("不能给自己转移积分");
   if (!Number.isInteger(amount) || amount <= 0) throw new Error("amount 必须为正整数");
-
-  const toUser = await requireUser(toOpenid);
 
   const ts = Date.now();
   const fromMemberId = `${roomId}_${fromOpenid}`;
@@ -86,16 +64,10 @@ exports.main = async (event) => {
         toOpenid,
         amount,
         createdAt: ts,
-        text: `${fromUser.nickName} 向 ${toUser.nickName} 转移了 ${amount} 积分`
-      }
-    });
-
-    await transaction.collection("rooms").doc(roomId).update({
-      data: {
-        updatedAt: ts
+        text: `${fromOpenid.slice(0, 6)} 向 ${toOpenid.slice(0, 6)} 转移了 ${amount} 积分`
       }
     });
   });
 
-  return { ok: true };
+  return { ok: true, createdAt: ts };
 };

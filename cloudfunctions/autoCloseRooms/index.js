@@ -7,6 +7,8 @@ const _ = db.command;
 const OFFLINE_MS = 10 * 60 * 1000;
 const MAX_RECENT_GAMES = 20;
 const MAX_ROOMS_PER_RUN = 50;
+const MAX_CLEANUP_ROOMS_PER_RUN = 50;
+const MAX_CLEANUP_ROUNDS = 200;
 
 const ensuredCollections = new Set();
 async function ensureCollection(name) {
@@ -47,6 +49,66 @@ function getCloseReason(activeMembers, ts) {
     return lastSeenAt > 0 && lastSeenAt <= offlineBefore;
   });
   return allOffline ? "inactive_10m" : "";
+}
+
+async function removeWhereAll(collectionName, where) {
+  let total = 0;
+  for (let round = 0; round < MAX_CLEANUP_ROUNDS; round += 1) {
+    const res = await db
+      .collection(collectionName)
+      .where(where)
+      .remove()
+      .catch(() => null);
+    const removed = Number(res?.stats?.removed || 0);
+    total += removed;
+    if (!removed) break;
+  }
+  return total;
+}
+
+async function cleanupRoomData(roomId) {
+  const roomRef = db.collection("rooms").doc(roomId);
+  const roomDoc = await roomRef.get().catch(() => null);
+  const room = roomDoc?.data || null;
+
+  const roomCodeFileID = String(room?.roomCodeFileID || "").trim();
+  if (roomCodeFileID) {
+    try {
+      await cloud.deleteFile({ fileList: [roomCodeFileID] });
+    } catch {
+      // ignore
+    }
+  }
+
+  const logsRemoved = await removeWhereAll("room_logs", { roomId });
+  const membersRemoved = await removeWhereAll("room_members", { roomId });
+
+  // 若已把房间相关数据清理干净，最后删除房间 doc
+  const hasMoreLogs = await db
+    .collection("room_logs")
+    .where({ roomId })
+    .limit(1)
+    .get()
+    .then((r) => (r.data || []).length > 0)
+    .catch(() => false);
+  const hasMoreMembers = await db
+    .collection("room_members")
+    .where({ roomId })
+    .limit(1)
+    .get()
+    .then((r) => (r.data || []).length > 0)
+    .catch(() => false);
+
+  if (!hasMoreLogs && !hasMoreMembers) {
+    await roomRef.remove().catch(() => null);
+    return { ok: true, logsRemoved, membersRemoved, roomRemoved: true };
+  }
+
+  // 保留 rooms 以便后续重试清理
+  await roomRef
+    .update({ data: { cleanupPending: true, cleanupUpdatedAt: Date.now() } })
+    .catch(() => null);
+  return { ok: false, logsRemoved, membersRemoved, roomRemoved: false };
 }
 
 async function tryCloseRoom(roomId, ts) {
@@ -121,6 +183,7 @@ async function tryCloseRoom(roomId, ts) {
         status: "ended",
         endedAt: ts,
         closeReason,
+        cleanupPending: true,
         updatedAt: ts
       }
     });
@@ -158,7 +221,11 @@ exports.main = async (event) => {
     await db.collection("room_members").doc(memberId).get().catch(() => {
       throw new Error("你不在该房间内");
     });
-    return await tryCloseRoom(roomId, ts);
+    const res = await tryCloseRoom(roomId, ts);
+    if (res.closed) {
+      await cleanupRoomData(roomId);
+    }
+    return res;
   }
 
   const roomsRes = await db
@@ -172,8 +239,28 @@ exports.main = async (event) => {
   let closed = 0;
   for (const room of rooms) {
     const res = await tryCloseRoom(String(room._id || ""), ts);
-    if (res.closed) closed += 1;
+    if (res.closed) {
+      closed += 1;
+      await cleanupRoomData(res.roomId);
+    }
   }
 
-  return { ok: true, checked: rooms.length, closed };
+  // 清理上次关闭但未清理干净的房间
+  const pendingRes = await db
+    .collection("rooms")
+    .where({ status: "ended" })
+    .orderBy("endedAt", "asc")
+    .limit(MAX_CLEANUP_ROOMS_PER_RUN)
+    .get()
+    .catch(() => ({ data: [] }));
+
+  let cleaned = 0;
+  for (const room of pendingRes.data || []) {
+    const id = String(room._id || "").trim();
+    if (!id) continue;
+    const cleanRes = await cleanupRoomData(id);
+    if (cleanRes.ok) cleaned += 1;
+  }
+
+  return { ok: true, checked: rooms.length, closed, cleanupChecked: (pendingRes.data || []).length, cleaned };
 };

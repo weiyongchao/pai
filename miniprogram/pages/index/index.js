@@ -4,13 +4,21 @@ const { isCloudFileId, resolveTempUrls } = require("../../utils/cloudFile");
 Page({
   data: {
     me: null,
+    checkingAuth: true,
+    navigatingRoom: false,
     creatingRoom: false,
+    joiningById: false,
+    joinModalVisible: false,
+    joinInputFocus: false,
     redirectRoomId: "",
-    activeRoomId: ""
+    activeRoomId: "",
+    manualRoomId: ""
   },
 
   _creatingRoom: false,
   _navigating: false,
+  _joiningById: false,
+  _checkedOnce: false,
 
   onLoad(options) {
     if (options.redirectRoomId) {
@@ -25,12 +33,18 @@ Page({
 
   onShow() {
     if (this.data.creatingRoom) this.setData({ creatingRoom: false });
+    if (this.data.joiningById) this.setData({ joiningById: false });
+    if (this.data.joinModalVisible) this.setData({ joinModalVisible: false, joinInputFocus: false });
+    if (this.data.navigatingRoom) this.setData({ navigatingRoom: false });
     this._creatingRoom = false;
     this._navigating = false;
-    this.loadMe();
+    this._joiningById = false;
+    this.loadMe({ initial: !this._checkedOnce });
   },
 
-  async loadMe() {
+  async loadMe(options = {}) {
+    const initial = !!options.initial;
+    if (initial) this.setData({ checkingAuth: true });
     try {
       const res = await callFunction("getMyProfile");
       let me = res.user || null;
@@ -81,6 +95,11 @@ Page({
     } catch (e) {
       console.error(e);
       wx.showToast({ title: e?.message || "加载失败", icon: "none" });
+    } finally {
+      if (initial) {
+        this._checkedOnce = true;
+        this.setData({ checkingAuth: false });
+      }
     }
   },
 
@@ -98,10 +117,12 @@ Page({
 
     this.setData({ redirectRoomId: "" });
     this._navigating = true;
+    this.setData({ navigatingRoom: true });
     wx.navigateTo({
       url: `/pages/room/room?roomId=${encodeURIComponent(targetRoomId)}`,
       fail: () => {
         this._navigating = false;
+        this.setData({ navigatingRoom: false });
       }
     });
   },
@@ -111,10 +132,12 @@ Page({
     const roomId = String(this.data.activeRoomId || "").trim();
     if (!roomId) return;
     this._navigating = true;
+    this.setData({ navigatingRoom: true });
     wx.navigateTo({
       url: `/pages/room/room?roomId=${encodeURIComponent(roomId)}`,
       fail: () => {
         this._navigating = false;
+        this.setData({ navigatingRoom: false });
       }
     });
   },
@@ -204,6 +227,87 @@ Page({
       }
     });
   },
+
+  openJoinModal() {
+    if (this._creatingRoom || this._navigating || this._joiningById) return;
+    if (!this.data.me) {
+      wx.showToast({ title: "请先授权登录", icon: "none" });
+      return;
+    }
+    if (this.data.activeRoomId) {
+      this.onBackToRoom();
+      return;
+    }
+
+    this.setData({
+      joinModalVisible: true,
+      joinInputFocus: true,
+      manualRoomId: ""
+    });
+  },
+
+  closeJoinModal() {
+    if (this.data.joiningById) return;
+    this.setData({ joinModalVisible: false, joinInputFocus: false, manualRoomId: "" });
+  },
+
+  onManualRoomIdInput(e) {
+    this.setData({ manualRoomId: e.detail.value });
+  },
+
+  onJoinByRoomId() {
+    if (this._creatingRoom || this._navigating || this._joiningById) return;
+    if (!this.data.me) {
+      wx.showToast({ title: "请先授权登录", icon: "none" });
+      return;
+    }
+    if (this.data.activeRoomId) {
+      this.onBackToRoom();
+      return;
+    }
+
+    let roomId = String(this.data.manualRoomId || "").trim();
+    if (!roomId) {
+      wx.showToast({ title: "请输入房间号", icon: "none" });
+      return;
+    }
+
+    if (roomId.includes("?")) {
+      const parsed = this.parseRoomIdFromPath(roomId);
+      if (parsed) roomId = parsed;
+    }
+
+    roomId = String(roomId || "").trim();
+    if (!roomId) {
+      wx.showToast({ title: "未识别到房间号", icon: "none" });
+      return;
+    }
+    if (roomId.length > 32) {
+      wx.showToast({ title: "房间号格式不正确", icon: "none" });
+      return;
+    }
+    if (!/^[0-9a-zA-Z]+$/.test(roomId)) {
+      wx.showToast({ title: "房间号格式不正确", icon: "none" });
+      return;
+    }
+
+    this._joiningById = true;
+    this.setData({ joiningById: true });
+    this._navigating = true;
+    wx.navigateTo({
+      url: `/pages/room/room?roomId=${encodeURIComponent(roomId.toLowerCase())}`,
+      success: () => {
+        this.setData({ manualRoomId: "", joinModalVisible: false, joinInputFocus: false });
+      },
+      fail: () => {
+        this._navigating = false;
+        this._joiningById = false;
+        this.setData({ joiningById: false });
+      }
+    });
+  },
+
+  noop() {},
 
   parseRoomIdFromScan(res) {
     const path = res.path || "";
