@@ -31,7 +31,8 @@ Page({
     profileAvatarPreviewUrl: "",
     profileSaving: false,
 
-    isOwner: false
+    isOwner: false,
+    showFooterRoomCodeButton: false
   },
 
   _roomCodeOpenedAt: 0,

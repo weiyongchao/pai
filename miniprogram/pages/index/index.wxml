@@ -6,10 +6,6 @@
     </view>
   </view>
 
-  <view wx:elif="{{!me}}" class="center-wrap">
-    <button class="btn primary-btn auth-btn" bindtap="onGetProfile">微信授权登录</button>
-  </view>
-
   <view wx:else class="container">
     <view class="card">
       <view class="row space-between">
@@ -22,7 +18,7 @@
             </view>
           </view>
         </view>
-        <view class="muted" bindtap="toProfile">修改资料</view>
+        <view class="muted" bindtap="toProfile">完善资料</view>
       </view>
     </view>
 

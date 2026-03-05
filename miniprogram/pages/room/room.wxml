@@ -17,9 +17,14 @@
             <view class="score {{item.score < 0 ? 'score-neg' : (item.score > 0 ? 'score-pos' : 'score-zero')}}">{{item.score}}</view>
             <view wx:if="{{item.openid === meOpenid}}" class="me-tag">我</view>
           </view>
+          <view class="member member-add" bindtap="onShowRoomCode">
+            <view class="avatar avatar-add">+</view>
+            <view class="name">邀请</view>
+            <view class="muted add-sub">房间码</view>
+          </view>
         </view>
       </scroll-view>
-      <view class="muted tips-line">点他人头像转积分 · 点自己的头像改资料</view>
+      <view class="muted tips-line">点他人头像转积分 · 点自己改资料 · 点「邀请」发房间码</view>
     </view>
 
     <view class="card logs-card">
@@ -40,7 +45,7 @@
 
   <!-- 底部操作栏 -->
   <view wx:if="{{!loading}}" class="footer">
-    <button class="footer-btn ghost-btn" bindtap="onShowRoomCode">房间码</button>
+    <button wx:if="{{showFooterRoomCodeButton}}" class="footer-btn ghost-btn" bindtap="onShowRoomCode">房间码</button>
     <button class="footer-btn primary-btn" bindtap="toMine">我的</button>
   </view>
 

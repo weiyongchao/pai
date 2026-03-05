@@ -8,7 +8,7 @@
 
   <view wx:else>
     <view class="card" wx:if="{{!me}}">
-      <view class="muted">请先在首页完成授权登录</view>
+      <view class="muted">用户信息加载失败，请返回重试</view>
     </view>
 
     <view wx:else>
@@ -29,12 +29,29 @@
       <view class="card">
         <view class="section-title">历史战绩</view>
         <view wx:if="{{history.length === 0}}" class="muted" style="text-align:center">暂无记录</view>
-        <view class="history-item row space-between" wx:for="{{history}}" wx:key="roomId">
-          <view class="muted">{{item.time}}</view>
-          <view class="row history-right">
-            <view class="tag {{item.resultClass}}">{{item.resultText}}</view>
-            <view class="num {{item.score > 0 ? 'score-pos' : (item.score < 0 ? 'score-neg' : 'score-zero')}}">{{item.scoreText}}</view>
-          </view>
+        <view wx:else class="timeline">
+          <block wx:for="{{history}}" wx:key="roomId">
+            <view wx:if="{{item.showYearHeader}}" class="year-row">
+              <view class="year-dot"></view>
+              <view class="year-text">{{item.year}}</view>
+            </view>
+
+            <view class="record">
+              <view class="record-dot"></view>
+              <view class="record-body">
+                <view class="row space-between record-top">
+                  <view class="record-title">{{item.timeText}}  房:{{item.roomId}}</view>
+                  <view class="row record-right">
+                    <view class="chip {{item.resultClass}}">{{item.resultText}}</view>
+                    <view class="score">{{item.absScoreText}}</view>
+                  </view>
+                </view>
+                <view class="{{item.detailText ? 'record-detail' : 'record-detail muted'}}">
+                  {{item.detailText || '该局暂无明细（旧数据）'}}
+                </view>
+              </view>
+            </view>
+          </block>
         </view>
       </view>
     </view>

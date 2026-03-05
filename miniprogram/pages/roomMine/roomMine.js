@@ -71,7 +71,7 @@ Page({
       let me = profileRes?.user || null;
       if (!me) {
         const err = profileSettled.status === "rejected" ? profileSettled.reason : null;
-        const msg = String(err?.message || err?.errMsg || "").trim() || "请先授权登录";
+        const msg = String(err?.message || err?.errMsg || "").trim() || "用户信息加载失败";
         throw new Error(msg);
       }
       if (me && isCloudFileId(me.avatarUrl)) {
@@ -189,8 +189,22 @@ Page({
       success: async (res) => {
         if (!res.confirm) return;
         this.setData({ leaving: true });
+        this.stopHeartbeat();
         try {
-          await callFunction("leaveRoom", { roomId: this.data.roomId });
+          const tryLeave = async () => {
+            await callFunction("leaveRoom", { roomId: this.data.roomId });
+          };
+
+          try {
+            await tryLeave();
+          } catch (e) {
+            const msg = String(e?.message || e?.errMsg || "").trim();
+            const isTimeout = msg.includes("-504003") || msg.includes("TIME_LIMIT_EXCEEDED") || msg.includes("timed out after 3 seconds");
+            if (!isTimeout) throw e;
+            wx.showToast({ title: "网络较慢，正在重试…", icon: "none" });
+            await new Promise((r) => setTimeout(r, 800));
+            await tryLeave();
+          }
           try {
             wx.removeStorageSync("activeRoomId");
           } catch {

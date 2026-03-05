@@ -21,7 +21,7 @@
     </view>
 
     <view class="card" wx:else>
-      <view class="muted">请先在首页完成授权登录</view>
+      <view class="muted">用户信息加载失败，请返回重试</view>
     </view>
 
     <view style="height: 24rpx"></view>

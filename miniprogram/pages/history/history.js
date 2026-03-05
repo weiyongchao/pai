@@ -39,18 +39,62 @@ Page({
 
   buildHistory(list) {
     const rows = Array.isArray(list) ? list : [];
-    return rows.map((g) => {
+    const safeRows = rows
+      .map((g) => ({ ...(g || {}) }))
+      .sort((a, b) => Number(b.endedAt || 0) - Number(a.endedAt || 0));
+
+    const pad2 = (n) => (n < 10 ? `0${n}` : `${n}`);
+    const fmtTime = (ts) => {
+      if (!ts) return "";
+      const d = new Date(ts);
+      return `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+    };
+
+    const fmtScore = (n) => {
+      const v = Number(n || 0);
+      if (!Number.isFinite(v)) return "0";
+      // 按截图：正数不加 '+'
+      return `${v}`;
+    };
+
+    let lastYear = "";
+    return safeRows.map((g) => {
       const endedAt = Number(g.endedAt || 0);
+      const d = endedAt ? new Date(endedAt) : null;
+      const year = d ? String(d.getFullYear()) : "";
       const score = Number(g.score || 0);
+      const absScore = Math.abs(Number.isFinite(score) ? score : 0);
       const result = String(g.result || "");
+
+      const players = Array.isArray(g.players) ? g.players : [];
+      let detailText = "";
+      if (players.length) {
+        detailText = players
+          .map((p) => {
+            const nick = String(p?.nickName || "").trim() || "成员";
+            const s = Number(p?.score || 0);
+            return `${nick}(${fmtScore(s)})`;
+          })
+          .join("，");
+      } else {
+        const raw = String(g.playersText || "").trim();
+        detailText = raw ? raw.replace(/\(\+/g, "(") : "";
+      }
+
+      const showYearHeader = !!year && year !== lastYear;
+      if (year) lastYear = year;
+
       return {
         roomId: String(g.roomId || ""),
         endedAt,
-        time: this.formatDateTime(endedAt),
-        score,
-        scoreText: score > 0 ? `+${score}` : `${score}`,
-        resultText: result === "win" ? "胜" : result === "loss" ? "负" : "平",
-        resultClass: result === "win" ? "win" : result === "loss" ? "loss" : "draw"
+        year,
+        showYearHeader,
+        timeText: fmtTime(endedAt),
+        absScore,
+        absScoreText: String(absScore),
+        resultText: result === "win" ? "赢" : result === "loss" ? "输" : "和",
+        resultClass: result === "win" ? "win" : result === "loss" ? "loss" : "draw",
+        detailText
       };
     });
   },
@@ -62,4 +106,3 @@ Page({
     return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
   }
 });
-

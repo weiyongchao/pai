@@ -29,13 +29,35 @@ function withDefaultStats(user) {
   };
 }
 
+function buildDefaultUser(openid, ts) {
+  const safe = String(openid || "").slice(0, 6);
+  return {
+    nickName: safe ? `玩家${safe}` : "玩家",
+    avatarUrl: "",
+    profileCompleted: false,
+    stats: { gamesPlayed: 0, wins: 0, losses: 0 },
+    recentGames: [],
+    createdAt: ts,
+    updatedAt: ts
+  };
+}
+
 exports.main = async () => {
   const { OPENID } = cloud.getWXContext();
   await ensureCollection("users");
-  try {
-    const doc = await db.collection("users").doc(OPENID).get();
+  const userRef = db.collection("users").doc(OPENID);
+  const doc = await userRef.get().catch(() => null);
+  if (doc && doc.data) {
     return { openid: OPENID, user: withDefaultStats(doc.data) };
-  } catch {
-    return { openid: OPENID, user: null };
   }
+
+  // 默认创建“游客用户”，避免进入首页就必须授权头像/昵称（审核要求：先体验后授权）
+  const ts = Date.now();
+  const user = buildDefaultUser(OPENID, ts);
+  await userRef
+    .set({
+      data: user
+    })
+    .catch(() => null);
+  return { openid: OPENID, user: withDefaultStats(user) };
 };

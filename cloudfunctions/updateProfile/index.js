@@ -44,6 +44,7 @@ exports.main = async (event) => {
       data: {
         nickName,
         avatarUrl,
+        profileCompleted: true,
         updatedAt: ts
       }
     });
@@ -52,6 +53,7 @@ exports.main = async (event) => {
       data: {
         nickName,
         avatarUrl,
+        profileCompleted: true,
         stats: { gamesPlayed: 0, wins: 0, losses: 0 },
         recentGames: [],
         createdAt: ts,

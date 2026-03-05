@@ -7,13 +7,43 @@ const _ = db.command;
 const MAX_MEMBERS = 20;
 const SEEN_TOUCH_MIN_INTERVAL_MS = 15 * 1000;
 
-async function requireUser(openid) {
+const ensuredCollections = new Set();
+async function ensureCollection(name) {
+  if (ensuredCollections.has(name)) return;
+  ensuredCollections.add(name);
   try {
-    const doc = await db.collection("users").doc(openid).get();
-    return doc.data;
+    await db.createCollection(name);
   } catch {
-    throw new Error("请先授权登录");
+    // ignore
   }
+}
+
+function buildDefaultUser(openid, ts) {
+  const safe = String(openid || "").slice(0, 6);
+  return {
+    nickName: safe ? `玩家${safe}` : "玩家",
+    avatarUrl: "",
+    profileCompleted: false,
+    stats: { gamesPlayed: 0, wins: 0, losses: 0 },
+    recentGames: [],
+    createdAt: ts,
+    updatedAt: ts
+  };
+}
+
+async function ensureUser(openid) {
+  await ensureCollection("users");
+  const userRef = db.collection("users").doc(openid);
+  const doc = await userRef.get().catch(() => null);
+  if (doc && doc.data) return doc.data;
+  const ts = Date.now();
+  const user = buildDefaultUser(openid, ts);
+  await userRef
+    .set({
+      data: user
+    })
+    .catch(() => null);
+  return user;
 }
 
 async function findActiveRoomId(openid) {
@@ -69,6 +99,9 @@ async function getUsersByOpenids(openids) {
 exports.main = async (event) => {
   const { OPENID } = cloud.getWXContext();
   if (event && event.warmup) return { ok: true, warmup: true };
+  await ensureCollection("rooms");
+  await ensureCollection("room_members");
+  await ensureCollection("room_logs");
   const roomId = String(event.roomId || "").trim();
   if (!roomId) throw new Error("roomId 不能为空");
 
@@ -84,7 +117,7 @@ exports.main = async (event) => {
   let me = null;
   if (needJoin) {
     // 需要入房/重新入房时才强制校验授权并取昵称（用于写入 join 流水）
-    me = await requireUser(OPENID);
+    me = await ensureUser(OPENID);
   }
 
   // 性能优化：只有在需要“入房/重新入房”时才检查是否已在其他房间

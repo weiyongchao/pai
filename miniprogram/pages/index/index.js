@@ -104,7 +104,6 @@ Page({
   },
 
   maybeNavigateRedirect() {
-    if (!this.data.me) return;
     const redirectRoomId = String(this.data.redirectRoomId || "").trim();
     if (!redirectRoomId) return;
     if (this._creatingRoom || this._navigating) return;
@@ -167,10 +166,6 @@ Page({
 
   async onCreateRoom() {
     if (this._creatingRoom) return;
-    if (!this.data.me) {
-      wx.showToast({ title: "请先授权登录", icon: "none" });
-      return;
-    }
     if (this.data.activeRoomId) {
       this.onBackToRoom();
       return;
@@ -202,10 +197,6 @@ Page({
   },
 
   async onScanJoin() {
-    if (!this.data.me) {
-      wx.showToast({ title: "请先授权登录", icon: "none" });
-      return;
-    }
     if (this.data.activeRoomId) {
       wx.showToast({ title: "你还在房间中，请先退房", icon: "none" });
       return;
@@ -230,10 +221,6 @@ Page({
 
   openJoinModal() {
     if (this._creatingRoom || this._navigating || this._joiningById) return;
-    if (!this.data.me) {
-      wx.showToast({ title: "请先授权登录", icon: "none" });
-      return;
-    }
     if (this.data.activeRoomId) {
       this.onBackToRoom();
       return;
@@ -257,10 +244,6 @@ Page({
 
   onJoinByRoomId() {
     if (this._creatingRoom || this._navigating || this._joiningById) return;
-    if (!this.data.me) {
-      wx.showToast({ title: "请先授权登录", icon: "none" });
-      return;
-    }
     if (this.data.activeRoomId) {
       this.onBackToRoom();
       return;

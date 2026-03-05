@@ -51,12 +51,34 @@
   flex: 0 0 168rpx;
 }
 
+.member-add {
+  background: #ffffff;
+  border: 2rpx dashed #d7dbe2;
+}
+
 .avatar {
   width: 92rpx;
   height: 92rpx;
   border-radius: 999rpx;
   margin: 0 auto;
   background: #eef0f3;
+}
+
+.avatar-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 56rpx;
+  font-weight: 900;
+  color: #07c160;
+  background: rgba(7, 193, 96, 0.06);
+  border: 2rpx dashed rgba(7, 193, 96, 0.5);
+}
+
+.add-sub {
+  margin-top: 6rpx;
+  font-size: 22rpx;
+  line-height: 1.2;
 }
 
 .name {

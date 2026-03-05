@@ -21,13 +21,32 @@ async function ensureCollection(name) {
   }
 }
 
-async function requireUser(openid) {
-  try {
-    const doc = await db.collection("users").doc(openid).get();
-    return doc.data;
-  } catch {
-    throw new Error("请先授权登录");
-  }
+function buildDefaultUser(openid, ts) {
+  const safe = String(openid || "").slice(0, 6);
+  return {
+    nickName: safe ? `玩家${safe}` : "玩家",
+    avatarUrl: "",
+    profileCompleted: false,
+    stats: { gamesPlayed: 0, wins: 0, losses: 0 },
+    recentGames: [],
+    createdAt: ts,
+    updatedAt: ts
+  };
+}
+
+async function ensureUser(openid) {
+  await ensureCollection("users");
+  const userRef = db.collection("users").doc(openid);
+  const doc = await userRef.get().catch(() => null);
+  if (doc && doc.data) return doc.data;
+  const ts = Date.now();
+  const user = buildDefaultUser(openid, ts);
+  await userRef
+    .set({
+      data: user
+    })
+    .catch(() => null);
+  return user;
 }
 
 function normalizeScore(score) {
@@ -39,6 +58,17 @@ function getResult(score) {
   if (score > 0) return "win";
   if (score < 0) return "loss";
   return "draw";
+}
+
+function formatSignedScore(score) {
+  const n = normalizeScore(score);
+  return n > 0 ? `+${n}` : `${n}`;
+}
+
+function normalizeNickName(nickName, fallback) {
+  const s = String(nickName || "").trim();
+  if (s) return s.slice(0, 20);
+  return String(fallback || "").trim() || "成员";
 }
 
 function getCloseReason(activeMembers, ts) {
@@ -136,6 +166,27 @@ async function tryCloseRoom(roomId, ts) {
       return;
     }
 
+    const openids = Array.from(new Set(members.map((m) => String(m.openid || "").trim()).filter(Boolean)));
+    const usersRes = await transaction
+      .collection("users")
+      .where({ _id: _.in(openids) })
+      .field({ _id: true, nickName: true })
+      .get()
+      .catch(() => ({ data: [] }));
+    const userMap = new Map((usersRes.data || []).map((u) => [String(u._id || ""), u]));
+
+    const players = members
+      .map((m) => {
+        const openid = String(m.openid || "").trim();
+        const score = normalizeScore(m.score);
+        const user = userMap.get(openid) || {};
+        const fallback = openid ? `玩家${openid.slice(0, 6)}` : "玩家";
+        const nickName = normalizeNickName(user.nickName, fallback);
+        return { nickName, score, result: getResult(score) };
+      })
+      .sort((a, b) => b.score - a.score);
+    const playersText = players.map((p) => `${p.nickName}(${formatSignedScore(p.score)})`).join("，");
+
     for (const member of members) {
       const score = normalizeScore(member.score);
       const winInc = score > 0 ? 1 : 0;
@@ -150,7 +201,9 @@ async function tryCloseRoom(roomId, ts) {
         endedAt: ts,
         score,
         result: resultText,
-        reason: closeReason
+        reason: closeReason,
+        players,
+        playersText
       };
       const recentGames = [entry, ...existingRecent].slice(0, MAX_RECENT_GAMES);
 
@@ -165,9 +218,10 @@ async function tryCloseRoom(roomId, ts) {
           }
         });
       } else {
+        const fallback = member.openid ? `玩家${String(member.openid).slice(0, 6)}` : "玩家";
         await userRef.set({
           data: {
-            nickName: member.openid.slice(0, 6),
+            nickName: fallback,
             avatarUrl: "",
             stats: { gamesPlayed: 1, wins: winInc, losses: lossInc },
             recentGames: [entry],
@@ -215,7 +269,7 @@ exports.main = async (event) => {
   const ts = Date.now();
 
   if (OPENID) {
-    await requireUser(OPENID);
+    await ensureUser(OPENID);
     if (!roomId) throw new Error("roomId 不能为空");
     const memberId = `${roomId}_${OPENID}`;
     await db.collection("room_members").doc(memberId).get().catch(() => {

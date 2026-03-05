@@ -20,13 +20,32 @@ async function ensureCollection(name) {
   }
 }
 
-async function requireUser(openid) {
-  try {
-    const doc = await db.collection("users").doc(openid).get();
-    return doc.data;
-  } catch {
-    throw new Error("请先授权登录");
-  }
+function buildDefaultUser(openid, ts) {
+  const safe = String(openid || "").slice(0, 6);
+  return {
+    nickName: safe ? `玩家${safe}` : "玩家",
+    avatarUrl: "",
+    profileCompleted: false,
+    stats: { gamesPlayed: 0, wins: 0, losses: 0 },
+    recentGames: [],
+    createdAt: ts,
+    updatedAt: ts
+  };
+}
+
+async function ensureUser(openid) {
+  await ensureCollection("users");
+  const userRef = db.collection("users").doc(openid);
+  const doc = await userRef.get().catch(() => null);
+  if (doc && doc.data) return doc.data;
+  const ts = Date.now();
+  const user = buildDefaultUser(openid, ts);
+  await userRef
+    .set({
+      data: user
+    })
+    .catch(() => null);
+  return user;
 }
 
 async function getUsersByOpenids(openids) {
@@ -67,7 +86,7 @@ exports.main = async (event) => {
   await ensureCollection("rooms");
   await ensureCollection("room_members");
   await ensureCollection("room_logs");
-  await requireUser(OPENID);
+  await ensureUser(OPENID);
 
   const roomId = String(event.roomId || "").trim();
   if (!roomId) throw new Error("roomId 不能为空");
