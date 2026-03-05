@@ -38,7 +38,7 @@
 
 .year-dot {
   position: absolute;
-  left: 18rpx;
+  left: -28rpx;
   top: 24rpx;
   width: 18rpx;
   height: 18rpx;
@@ -68,7 +68,7 @@
 
 .record-dot {
   position: absolute;
-  left: 18rpx;
+  left: -28rpx;
   top: 44rpx;
   width: 16rpx;
   height: 16rpx;
@@ -136,4 +136,10 @@
   color: #6b7785;
   white-space: normal;
   word-break: break-all;
+}
+
+.record-detail.muted {
+  margin-top: 12rpx;
+  font-size: 24rpx;
+  color: #9aa4b2;
 }

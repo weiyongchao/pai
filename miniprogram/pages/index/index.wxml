@@ -10,15 +10,15 @@
     <view class="card">
       <view class="row space-between">
         <view class="row">
-          <image class="avatar" src="{{me.avatarUrl}}" mode="aspectFill" bindtap="toProfile"></image>
+          <image class="avatar" src="{{displayAvatarUrl}}" mode="aspectFill" bindtap="onTapAvatarOrNick"></image>
           <view style="margin-left: 20rpx">
-            <view class="nick" bindtap="toProfile">{{me.nickName}}</view>
+            <view class="nick {{isAuthed ? '' : 'nick-muted'}}" bindtap="onTapAvatarOrNick">{{displayNickName}}</view>
             <view class="muted" style="margin-top: 8rpx">
               参与 {{me.stats.gamesPlayed}} · 胜 {{me.stats.wins}} · 负 {{me.stats.losses}}
             </view>
           </view>
         </view>
-        <view class="muted" bindtap="toProfile">完善资料</view>
+        <view class="muted" bindtap="onImproveProfile">完善资料</view>
       </view>
     </view>
 
