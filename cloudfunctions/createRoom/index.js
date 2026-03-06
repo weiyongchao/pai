@@ -15,21 +15,6 @@ function randomRoomId(len = ROOM_ID_LEN) {
   return s;
 }
 
-async function allocateRoomId() {
-  // 4 位 base36：约 167 万空间；配合“存在性检查+重试”基本可满足不重复需求
-  const maxAttempts = 30;
-  for (let i = 0; i < maxAttempts; i += 1) {
-    const candidate = randomRoomId();
-    const existing = await db
-      .collection("rooms")
-      .doc(candidate)
-      .get()
-      .catch(() => null);
-    if (!existing || !existing.data) return candidate;
-  }
-  throw new Error("生成房间号失败，请重试");
-}
-
 const ensuredCollections = new Set();
 async function ensureCollection(name) {
   if (ensuredCollections.has(name)) return;
@@ -79,7 +64,9 @@ async function findActiveRoomId(openid) {
     .get();
 
   const members = membersRes.data || [];
-  const roomIds = Array.from(new Set(members.map((m) => String(m.roomId || "").trim()).filter(Boolean)));
+  const roomIds = Array.from(new Set(members.map((m) => String(m.roomId || "").trim().toLowerCase()).filter(Boolean))).filter(
+    (id) => /^[0-9a-z]{4}$/.test(id)
+  );
   if (roomIds.length === 0) return "";
 
   const roomsRes = await db
@@ -88,9 +75,13 @@ async function findActiveRoomId(openid) {
     .field({ _id: true, status: true })
     .get()
     .catch(() => ({ data: [] }));
-  const activeRooms = new Set((roomsRes.data || []).filter((r) => r.status === "active").map((r) => String(r._id || "").trim()));
+  const activeRooms = new Set(
+    (roomsRes.data || [])
+      .filter((r) => r.status === "active")
+      .map((r) => String(r._id || "").trim().toLowerCase())
+  );
   for (const member of members) {
-    const roomId = String(member.roomId || "").trim();
+    const roomId = String(member.roomId || "").trim().toLowerCase();
     if (roomId && activeRooms.has(roomId)) return roomId;
   }
 
@@ -101,6 +92,7 @@ exports.main = async (event) => {
   const { OPENID } = cloud.getWXContext();
   if (event && event.warmup) return { ok: true, warmup: true };
   await ensureCollection("rooms");
+  await ensureCollection("room_ids");
   await ensureCollection("room_members");
   await ensureCollection("room_logs");
   const me = await ensureUser(OPENID);
@@ -111,37 +103,65 @@ exports.main = async (event) => {
   }
 
   const ts = Date.now();
-  const roomId = await allocateRoomId();
 
-  await db.collection("rooms").doc(roomId).set({
-    data: {
-      ownerOpenid: OPENID,
-      status: "active",
-      createdAt: ts,
-      updatedAt: ts
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const roomId = randomRoomId();
+    try {
+      await db.runTransaction(async (transaction) => {
+        const idRef = transaction.collection("room_ids").doc(roomId);
+        const idDoc = await idRef.get().catch(() => null);
+        if (idDoc && idDoc.data) throw new Error("ROOM_ID_TAKEN");
+
+        const roomRef = transaction.collection("rooms").doc(roomId);
+        const roomDoc = await roomRef.get().catch(() => null);
+        if (roomDoc && roomDoc.data) throw new Error("ROOM_ID_TAKEN");
+
+        await idRef.set({
+          data: {
+            status: "active",
+            ownerOpenid: OPENID,
+            createdAt: ts,
+            updatedAt: ts
+          }
+        });
+
+        await roomRef.set({
+          data: {
+            ownerOpenid: OPENID,
+            status: "active",
+            createdAt: ts,
+            updatedAt: ts
+          }
+        });
+
+        await transaction.collection("room_members").doc(`${roomId}_${OPENID}`).set({
+          data: {
+            roomId,
+            openid: OPENID,
+            score: 0,
+            active: true,
+            lastSeenAt: ts,
+            joinedAt: ts,
+            updatedAt: ts
+          }
+        });
+
+        await transaction.collection("room_logs").add({
+          data: {
+            roomId,
+            type: "join",
+            createdAt: ts,
+            text: `${me.nickName} 创建房间`
+          }
+        });
+      });
+      return { roomId };
+    } catch (e) {
+      const msg = String(e?.message || "");
+      if (msg.includes("ROOM_ID_TAKEN")) continue;
+      throw e;
     }
-  });
+  }
 
-  await db.collection("room_members").doc(`${roomId}_${OPENID}`).set({
-    data: {
-      roomId,
-      openid: OPENID,
-      score: 0,
-      active: true,
-      lastSeenAt: ts,
-      joinedAt: ts,
-      updatedAt: ts
-    }
-  });
-
-  await db.collection("room_logs").add({
-    data: {
-      roomId,
-      type: "join",
-      createdAt: ts,
-      text: `${me.nickName} 创建房间`
-    }
-  });
-
-  return { roomId };
+  throw new Error("生成房间号失败，请重试");
 };

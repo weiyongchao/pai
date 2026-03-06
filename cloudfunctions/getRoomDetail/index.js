@@ -62,16 +62,21 @@ async function findActiveRoomId(openid) {
         .filter(Boolean)
     )
   );
-  if (roomIds.length === 0) return "";
+  const normalizedRoomIds = roomIds.map((id) => String(id || "").trim().toLowerCase()).filter((id) => /^[0-9a-z]{4}$/.test(id));
+  if (normalizedRoomIds.length === 0) return "";
 
   const roomsRes = await db
     .collection("rooms")
-    .where({ _id: _.in(roomIds) })
+    .where({ _id: _.in(normalizedRoomIds) })
     .get()
     .catch(() => ({ data: [] }));
-  const activeRooms = new Set((roomsRes.data || []).filter((r) => r.status === "active").map((r) => String(r._id || "").trim()));
+  const activeRooms = new Set(
+    (roomsRes.data || [])
+      .filter((r) => r.status === "active")
+      .map((r) => String(r._id || "").trim().toLowerCase())
+  );
   for (const member of members) {
-    const roomId = String(member.roomId || "").trim();
+    const roomId = String(member.roomId || "").trim().toLowerCase();
     if (roomId && activeRooms.has(roomId)) return roomId;
   }
 
@@ -99,15 +104,25 @@ async function getUsersByOpenids(openids) {
 exports.main = async (event) => {
   const { OPENID } = cloud.getWXContext();
   if (event && event.warmup) return { ok: true, warmup: true };
+  await ensureCollection("room_ids");
   await ensureCollection("rooms");
   await ensureCollection("room_members");
   await ensureCollection("room_logs");
-  const roomId = String(event.roomId || "").trim();
+  const roomId = String(event.roomId || "").trim().toLowerCase();
   if (!roomId) throw new Error("roomId 不能为空");
+  if (!/^[0-9a-z]{4}$/.test(roomId)) throw new Error("roomId 格式不正确");
 
   const roomDoc = await db.collection("rooms").doc(roomId).get().catch(() => null);
-  if (!roomDoc || !roomDoc.data) throw new Error("房间不存在");
-  if (roomDoc.data.status !== "active") throw new Error("房间已关闭");
+  if (!roomDoc || !roomDoc.data) {
+    const idDoc = await db
+      .collection("room_ids")
+      .doc(roomId)
+      .get()
+      .catch(() => null);
+    if (idDoc && idDoc.data) throw new Error("房间已结束");
+    throw new Error("房间不存在");
+  }
+  if (roomDoc.data.status !== "active") throw new Error("房间已结束");
 
   const memberId = `${roomId}_${OPENID}`;
   const memberRef = db.collection("room_members").doc(memberId);

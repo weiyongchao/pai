@@ -101,7 +101,7 @@ function callFunction(name, data) {
             ? `缺少集合：${collection}`
             : "缺少数据库集合";
           const e = new Error(
-            `数据库集合不存在（-502005）：${hint}。请在开发者工具「云开发 → 数据库」创建集合（至少：users/rooms/room_members/room_logs），并确认当前环境为 ${currentEnvId ||
+            `数据库集合不存在（-502005）：${hint}。请在开发者工具「云开发 → 数据库」创建集合（至少：users/rooms/room_ids/room_members/room_logs），并确认当前环境为 ${currentEnvId ||
               "(空)"}。原始错误：${errMsg}`
           );
           e.original = err;

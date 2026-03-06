@@ -46,6 +46,7 @@ async function ensureUser(openid) {
 exports.main = async (event) => {
   const { OPENID } = cloud.getWXContext();
   await ensureCollection("users");
+  await ensureCollection("room_ids");
   await ensureCollection("rooms");
   await ensureCollection("room_members");
   await ensureCollection("room_logs");
@@ -86,6 +87,29 @@ exports.main = async (event) => {
         updatedAt: ts
       }
     });
+
+    // 保留房间号记录，防止 4 位房间号被复用
+    const roomIdRef = transaction.collection("room_ids").doc(roomId);
+    try {
+      await roomIdRef.get();
+      await roomIdRef.update({
+        data: {
+          status: "ended",
+          endedAt: ts,
+          updatedAt: ts
+        }
+      });
+    } catch {
+      await roomIdRef.set({
+        data: {
+          status: "ended",
+          ownerOpenid: String(room.ownerOpenid || ""),
+          createdAt: Number(room.createdAt || ts),
+          endedAt: ts,
+          updatedAt: ts
+        }
+      });
+    }
 
     await transaction.collection("room_logs").add({
       data: {

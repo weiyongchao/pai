@@ -13,11 +13,12 @@ exports.main = async (event) => {
     return { ok: true, warmup: true };
   }
 
-  const roomId = String(event.roomId || "").trim();
+  const roomId = String(event.roomId || "").trim().toLowerCase();
   const toOpenid = String(event.toOpenid || "").trim();
   const amount = Number(event.amount);
 
   if (!roomId) throw new Error("roomId 不能为空");
+  if (!/^[0-9a-z]{4}$/.test(roomId)) throw new Error("roomId 格式不正确");
   if (!toOpenid) throw new Error("toOpenid 不能为空");
   if (toOpenid === fromOpenid) throw new Error("不能给自己转移积分");
   if (!Number.isInteger(amount) || amount <= 0) throw new Error("amount 必须为正整数");

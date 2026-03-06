@@ -45,16 +45,27 @@ async function ensureUser(openid) {
 exports.main = async (event) => {
   const { OPENID } = cloud.getWXContext();
   await ensureCollection("users");
+  await ensureCollection("room_ids");
   await ensureCollection("rooms");
   await ensureCollection("room_members");
   await ensureUser(OPENID);
 
-  const roomId = String(event.roomId || "").trim();
+  const roomId = String(event.roomId || "").trim().toLowerCase();
   if (!roomId) throw new Error("roomId 不能为空");
+  if (!/^[0-9a-z]{4}$/.test(roomId)) throw new Error("roomId 格式不正确");
 
   const roomDoc = await db.collection("rooms").doc(roomId).get().catch(() => null);
-  if (!roomDoc || !roomDoc.data) throw new Error("房间不存在");
+  if (!roomDoc || !roomDoc.data) {
+    const idDoc = await db
+      .collection("room_ids")
+      .doc(roomId)
+      .get()
+      .catch(() => null);
+    if (idDoc && idDoc.data) throw new Error("房间已结束");
+    throw new Error("房间不存在");
+  }
   const room = roomDoc.data;
+  if (room.status !== "active") throw new Error("房间已结束");
 
   const memberId = `${roomId}_${OPENID}`;
   await db.collection("room_members").doc(memberId).get().catch(() => {

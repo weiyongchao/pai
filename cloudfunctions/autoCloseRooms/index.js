@@ -242,6 +242,29 @@ async function tryCloseRoom(roomId, ts) {
       }
     });
 
+    // 仅用于“房间号不复用”的保留记录：不存成员/流水等信息
+    const roomIdRef = transaction.collection("room_ids").doc(roomId);
+    try {
+      await roomIdRef.get();
+      await roomIdRef.update({
+        data: {
+          status: "ended",
+          endedAt: ts,
+          updatedAt: ts
+        }
+      });
+    } catch {
+      await roomIdRef.set({
+        data: {
+          status: "ended",
+          ownerOpenid: String(room.ownerOpenid || ""),
+          createdAt: Number(room.createdAt || ts),
+          endedAt: ts,
+          updatedAt: ts
+        }
+      });
+    }
+
     const reasonText =
       closeReason === "all_left" ? "所有人已退房" : "全员离线 10 分钟";
     await transaction.collection("room_logs").add({
@@ -261,6 +284,7 @@ async function tryCloseRoom(roomId, ts) {
 exports.main = async (event) => {
   const { OPENID } = cloud.getWXContext();
   await ensureCollection("users");
+  await ensureCollection("room_ids");
   await ensureCollection("rooms");
   await ensureCollection("room_members");
   await ensureCollection("room_logs");

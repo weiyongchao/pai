@@ -369,12 +369,12 @@ Page({
       wx.showToast({ title: "未识别到房间号", icon: "none" });
       return;
     }
-    if (roomId.length > 32) {
+    if (!/^[0-9a-zA-Z]+$/.test(roomId)) {
       wx.showToast({ title: "房间号格式不正确", icon: "none" });
       return;
     }
-    if (!/^[0-9a-zA-Z]+$/.test(roomId)) {
-      wx.showToast({ title: "房间号格式不正确", icon: "none" });
+    if (roomId.length !== 4) {
+      wx.showToast({ title: "房间号为 4 位字母/数字", icon: "none" });
       return;
     }
 

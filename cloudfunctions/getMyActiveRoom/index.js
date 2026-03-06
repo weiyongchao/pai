@@ -15,12 +15,8 @@ exports.main = async (event) => {
     .get();
 
   const members = membersRes.data || [];
-  const roomIds = Array.from(
-    new Set(
-      members
-        .map((m) => String(m.roomId || "").trim())
-        .filter(Boolean)
-    )
+  const roomIds = Array.from(new Set(members.map((m) => String(m.roomId || "").trim().toLowerCase()).filter(Boolean))).filter(
+    (id) => /^[0-9a-z]{4}$/.test(id)
   );
   if (roomIds.length === 0) return { roomId: "" };
 
@@ -29,9 +25,13 @@ exports.main = async (event) => {
     .where({ _id: _.in(roomIds) })
     .get()
     .catch(() => ({ data: [] }));
-  const activeRooms = new Set((roomsRes.data || []).filter((r) => r.status === "active").map((r) => String(r._id || "").trim()));
+  const activeRooms = new Set(
+    (roomsRes.data || [])
+      .filter((r) => r.status === "active")
+      .map((r) => String(r._id || "").trim().toLowerCase())
+  );
   for (const member of members) {
-    const roomId = String(member.roomId || "").trim();
+    const roomId = String(member.roomId || "").trim().toLowerCase();
     if (roomId && activeRooms.has(roomId)) return { roomId };
   }
 

@@ -88,8 +88,9 @@ exports.main = async (event) => {
   await ensureCollection("room_logs");
   await ensureUser(OPENID);
 
-  const roomId = String(event.roomId || "").trim();
+  const roomId = String(event.roomId || "").trim().toLowerCase();
   if (!roomId) throw new Error("roomId 不能为空");
+  if (!/^[0-9a-z]{4}$/.test(roomId)) throw new Error("roomId 格式不正确");
 
   const memberId = `${roomId}_${OPENID}`;
   const memberDoc = await db.collection("room_members").doc(memberId).get().catch(() => null);

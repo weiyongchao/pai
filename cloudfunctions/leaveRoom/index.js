@@ -7,8 +7,9 @@ exports.main = async (event) => {
   const { OPENID } = cloud.getWXContext();
   if (event && event.warmup) return { ok: true, warmup: true };
 
-  const roomId = String(event?.roomId || "").trim();
+  const roomId = String(event?.roomId || "").trim().toLowerCase();
   if (!roomId) throw new Error("roomId 不能为空");
+  if (!/^[0-9a-z]{4}$/.test(roomId)) throw new Error("roomId 格式不正确");
 
   const ts = Date.now();
   const memberId = `${roomId}_${OPENID}`;
@@ -41,4 +42,3 @@ exports.main = async (event) => {
 
   return { ok: true };
 };
-

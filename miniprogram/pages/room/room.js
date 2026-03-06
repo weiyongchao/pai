@@ -54,6 +54,11 @@ Page({
       this.setData({ loading: false });
       return;
     }
+    if (!/^[0-9a-z]{4}$/.test(roomId)) {
+      wx.showToast({ title: "房间号格式不正确（4位字母/数字）", icon: "none" });
+      this.setData({ loading: false });
+      return;
+    }
     this.setData({ roomId });
 
     // 让页面先完成过渡动画再发起接口请求，避免打开页卡顿
@@ -126,7 +131,7 @@ Page({
         return;
       }
 
-      const isRoomClosed = msg.includes("房间已关闭") || msg.includes("房间不存在");
+      const isRoomClosed = msg.includes("房间已关闭") || msg.includes("房间已结束") || msg.includes("房间不存在");
       if (isRoomClosed) {
         try {
           const stored = String(wx.getStorageSync("activeRoomId") || "").trim();
@@ -134,6 +139,22 @@ Page({
         } catch {
           // ignore
         }
+        const title = "房间已结束";
+        const content =
+          msg.includes("房间不存在")
+            ? "该房间不存在或已被关闭，无法加入。请让房主重新开房。"
+            : "该房间已结束/关闭，无法加入。请让房主重新开房。";
+        wx.showModal({
+          title,
+          content,
+          showCancel: false,
+          confirmText: "回首页",
+          success: () => {
+            wx.reLaunch({ url: "/pages/index/index" });
+          }
+        });
+        this.setData({ loading: false });
+        return;
       }
 
       console.error(e);
@@ -273,8 +294,8 @@ Page({
   },
 
   parseRoomId(options) {
-    if (options.roomId) return decodeURIComponent(options.roomId);
-    if (options.scene) return decodeURIComponent(options.scene);
+    if (options.roomId) return String(decodeURIComponent(options.roomId) || "").trim().toLowerCase();
+    if (options.scene) return String(decodeURIComponent(options.scene) || "").trim().toLowerCase();
     return "";
   },
 
