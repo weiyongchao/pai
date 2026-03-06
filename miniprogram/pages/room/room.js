@@ -11,6 +11,9 @@ Page({
     roomId: "",
     room: null,
     members: [],
+    seatVariant: "md",
+    seatEditMode: false,
+    seatSwapFromOpenid: "",
     logs: [],
     meOpenid: "",
     loading: true,
@@ -299,6 +302,107 @@ Page({
     return "";
   },
 
+  getSeatVariant(count) {
+    const n = Number(count || 0);
+    if (!Number.isFinite(n) || n <= 0) return "md";
+    if (n <= 6) return "lg";
+    if (n <= 10) return "md";
+    return "sm";
+  },
+
+  attachSeatLayout(members, meOpenid) {
+    const list = Array.isArray(members) ? members : [];
+    const n = list.length;
+    if (n === 0) {
+      return { seatVariant: this.getSeatVariant(0), members: [] };
+    }
+
+    const seatVariant = this.getSeatVariant(n);
+    const radiusPercent = seatVariant === "lg" ? 37.5 : seatVariant === "md" ? 39 : 40;
+    const step = (Math.PI * 2) / n;
+    const meIdx = list.findIndex((m) => String(m?.openid || "").trim() === String(meOpenid || "").trim());
+    // 让“我”默认坐在正下方（更符合牌桌视角）
+    const baseAngle = meIdx >= 0 ? Math.PI / 2 - meIdx * step : -Math.PI / 2;
+
+    const withSeat = list.map((m, idx) => {
+      const angle = baseAngle + idx * step;
+      const left = 50 + radiusPercent * Math.cos(angle);
+      const top = 50 + radiusPercent * Math.sin(angle);
+      const leftText = `${left.toFixed(2)}%`;
+      const topText = `${top.toFixed(2)}%`;
+      return {
+        ...m,
+        seatStyle: `left:${leftText};top:${topText};`
+      };
+    });
+
+    return { seatVariant, members: withSeat };
+  },
+
+  getSeatOrderKey(roomId) {
+    const id = String(roomId || "").trim();
+    return id ? `seatOrder_${id}` : "seatOrder_";
+  },
+
+  loadSeatOrder(roomId) {
+    const key = this.getSeatOrderKey(roomId);
+    try {
+      const stored = wx.getStorageSync(key);
+      if (Array.isArray(stored)) {
+        return stored.map((v) => String(v || "").trim()).filter(Boolean);
+      }
+      if (typeof stored === "string") {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          return parsed.map((v) => String(v || "").trim()).filter(Boolean);
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return [];
+  },
+
+  saveSeatOrder(roomId, order) {
+    const key = this.getSeatOrderKey(roomId);
+    const list = Array.isArray(order) ? order.map((v) => String(v || "").trim()).filter(Boolean) : [];
+    try {
+      wx.setStorageSync(key, list);
+    } catch {
+      // ignore
+    }
+  },
+
+  applySeatOrder(members, roomId) {
+    const list = Array.isArray(members) ? members : [];
+    const openids = list.map((m) => String(m?.openid || "").trim()).filter(Boolean);
+    if (openids.length === 0) return [];
+
+    const stored = this.loadSeatOrder(roomId);
+    const seen = new Set();
+    const existSet = new Set(openids);
+    const normalized = [];
+    for (const id of stored) {
+      if (!id || !existSet.has(id) || seen.has(id)) continue;
+      seen.add(id);
+      normalized.push(id);
+    }
+    for (const id of openids) {
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      normalized.push(id);
+    }
+
+    if (normalized.length) this.saveSeatOrder(roomId, normalized);
+
+    const indexByOpenid = new Map(normalized.map((id, idx) => [id, idx]));
+    return [...list].sort((a, b) => {
+      const ai = indexByOpenid.get(String(a?.openid || "").trim());
+      const bi = indexByOpenid.get(String(b?.openid || "").trim());
+      return Number(ai ?? 9999) - Number(bi ?? 9999);
+    });
+  },
+
   async refresh(options = {}) {
     const silent = !!options.silent;
     const throwOnError = !!options.throwOnError;
@@ -311,10 +415,13 @@ Page({
       if (cloudAvatars.length) {
         avatarMap = await resolveTempUrls(cloudAvatars);
       }
-      const members = rawMembers.map((member) => ({
+      const membersPlain = rawMembers.map((member) => ({
         ...member,
         avatarDisplayUrl: avatarMap.get(member.avatarUrl) || member.avatarUrl || ""
       }));
+      const orderedPlain = this.applySeatOrder(membersPlain, this.data.roomId);
+      const seatLayout = this.attachSeatLayout(orderedPlain, res.meOpenid);
+      const members = seatLayout.members;
       const nameByOpenid = new Map((members || []).map((m) => [m.openid, m.nickName || m.openid?.slice(0, 6) || "成员"]));
       const logs = (res.logs || []).map((log) => {
         const normalized = {
@@ -331,6 +438,7 @@ Page({
       const patch = {
         room: res.room,
         members,
+        seatVariant: seatLayout.seatVariant,
         logs,
         meOpenid: res.meOpenid,
         isOwner
@@ -391,6 +499,10 @@ Page({
     const openid = e.currentTarget.dataset.openid;
     const member = (this.data.members || []).find((m) => m.openid === openid);
     if (!member) return;
+    if (this.data.seatEditMode) {
+      this.onSwapSeatTap(openid);
+      return;
+    }
     if (openid === this.data.meOpenid) {
       this.openProfileModal();
       return;
@@ -405,6 +517,61 @@ Page({
       transferTo: member,
       transferAmount: ""
     });
+  },
+
+  toggleSeatEditMode() {
+    const next = !this.data.seatEditMode;
+    this.setData({
+      seatEditMode: next,
+      seatSwapFromOpenid: ""
+    });
+    wx.showToast({
+      title: next ? "座位调整：点两人交换" : "已退出座位调整",
+      icon: "none"
+    });
+  },
+
+  onSwapSeatTap(openid) {
+    const id = String(openid || "").trim();
+    if (!id) return;
+    const selected = String(this.data.seatSwapFromOpenid || "").trim();
+    if (!selected) {
+      this.setData({ seatSwapFromOpenid: id });
+      return;
+    }
+    if (selected === id) {
+      this.setData({ seatSwapFromOpenid: "" });
+      return;
+    }
+
+    const roomId = this.data.roomId;
+    const currentOrder = (this.data.members || []).map((m) => String(m?.openid || "").trim()).filter(Boolean);
+    const i = currentOrder.indexOf(selected);
+    const j = currentOrder.indexOf(id);
+    if (i < 0 || j < 0) {
+      this.setData({ seatSwapFromOpenid: "" });
+      return;
+    }
+    const nextOrder = [...currentOrder];
+    const tmp = nextOrder[i];
+    nextOrder[i] = nextOrder[j];
+    nextOrder[j] = tmp;
+    this.saveSeatOrder(roomId, nextOrder);
+
+    const idxMap = new Map(nextOrder.map((oid, idx) => [oid, idx]));
+    const membersOrdered = [...(this.data.members || [])].sort((a, b) => {
+      const ai = idxMap.get(String(a?.openid || "").trim());
+      const bi = idxMap.get(String(b?.openid || "").trim());
+      return Number(ai ?? 9999) - Number(bi ?? 9999);
+    });
+    const seatLayout = this.attachSeatLayout(membersOrdered, this.data.meOpenid);
+
+    this.setData({
+      members: seatLayout.members,
+      seatVariant: seatLayout.seatVariant,
+      seatSwapFromOpenid: ""
+    });
+    wx.showToast({ title: "已交换座位", icon: "success" });
   },
 
   onTransferAmountInput(e) {

@@ -8,23 +8,38 @@
 
   <view wx:else class="content">
     <view class="card">
-      <view class="section-title">成员</view>
-      <scroll-view scroll-x class="members-scroll" show-scrollbar="false">
-        <view class="members-row">
-          <view class="member" wx:for="{{members}}" wx:key="openid" bindtap="onTapMember" data-openid="{{item.openid}}">
-            <image class="avatar" src="{{item.avatarDisplayUrl}}" mode="aspectFill"></image>
-            <view class="name">{{item.nickName}}</view>
-            <view class="score {{item.score < 0 ? 'score-neg' : (item.score > 0 ? 'score-pos' : 'score-zero')}}">{{item.score}}</view>
-            <view wx:if="{{item.openid === meOpenid}}" class="me-tag">我</view>
-          </view>
-          <view class="member member-add" bindtap="onShowRoomCode">
-            <view class="avatar avatar-add">+</view>
-            <view class="name">邀请</view>
-            <view class="muted add-sub">房间码</view>
-          </view>
+      <view class="row space-between section-head">
+        <view class="section-title">成员</view>
+        <view class="seat-action {{seatEditMode ? 'seat-action-on' : ''}}" bindtap="toggleSeatEditMode">
+          {{seatEditMode ? '完成' : '调整座位'}}
         </view>
-      </scroll-view>
-      <view class="muted tips-line">点他人头像转积分 · 点自己改资料 · 点「邀请」发房间码</view>
+      </view>
+      <view class="table-area">
+        <view class="table-bg"></view>
+        <view class="table-ring"></view>
+
+        <view class="table-center" bindtap="onShowRoomCode">
+          <view class="center-plus">+</view>
+          <view class="center-text">邀请</view>
+          <view class="center-sub muted">{{roomId}}</view>
+        </view>
+
+        <view
+          class="seat seat-{{seatVariant}} {{seatEditMode ? 'seat-edit' : ''}} {{seatSwapFromOpenid === item.openid ? 'seat-selected' : ''}}"
+          wx:for="{{members}}"
+          wx:key="openid"
+          style="{{item.seatStyle}}"
+          bindtap="onTapMember"
+          data-openid="{{item.openid}}"
+        >
+          <image class="seat-avatar" src="{{item.avatarDisplayUrl}}" mode="aspectFill"></image>
+          <view class="seat-name">{{item.nickName}}</view>
+          <view class="seat-score {{item.score < 0 ? 'score-neg' : (item.score > 0 ? 'score-pos' : 'score-zero')}}">{{item.score}}</view>
+          <view wx:if="{{item.openid === meOpenid}}" class="seat-me-tag">我</view>
+        </view>
+      </view>
+      <view wx:if="{{seatEditMode}}" class="muted seat-hint">提示：点击两位成员可交换座位</view>
+      <view class="muted tips-line">点他人头像转积分 · 点自己改资料 · 点中间邀请发房间码</view>
     </view>
 
     <view class="card logs-card">
