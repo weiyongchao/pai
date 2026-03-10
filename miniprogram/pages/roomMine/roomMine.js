@@ -58,7 +58,6 @@ Page({
 
   async load() {
     this.setData({ loading: true });
-    wx.showNavigationBarLoading();
     try {
       const [profileSettled, summarySettled] = await Promise.allSettled([
         callFunction("getMyProfile"),
@@ -158,8 +157,6 @@ Page({
       console.error(e);
       wx.showToast({ title: e?.message || "加载失败", icon: "none" });
       this.setData({ loading: false });
-    } finally {
-      wx.hideNavigationBarLoading();
     }
   },
 

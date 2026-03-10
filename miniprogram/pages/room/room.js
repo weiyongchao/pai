@@ -90,7 +90,6 @@ Page({
 
   async enterRoom(roomId, options) {
     if (this._unloaded) return;
-    wx.showNavigationBarLoading();
     try {
       // 优先直拉详情：减少一次云函数调用；若云端仍是旧版 getRoomDetail 再降级 joinRoom
       try {
@@ -193,7 +192,6 @@ Page({
       wx.showToast({ title: msg || "进入房间失败", icon: "none" });
       this.setData({ loading: false });
     } finally {
-      wx.hideNavigationBarLoading();
     }
   },
 

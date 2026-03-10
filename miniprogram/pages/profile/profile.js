@@ -42,7 +42,6 @@ Page({
 
   async loadMe() {
     const isDirty = !!this._dirty;
-    if (!isDirty) wx.showNavigationBarLoading();
     try {
       const res = await callFunction("getMyProfile");
       if (!res.user) {
@@ -75,8 +74,6 @@ Page({
     } catch (e) {
       console.error(e);
       wx.showToast({ title: e?.message || "加载失败", icon: "none" });
-    } finally {
-      if (!isDirty) wx.hideNavigationBarLoading();
     }
   },
 
