@@ -5,6 +5,8 @@ const { compressImageForUpload } = require("../../utils/image");
 const { envId } = require("../../env");
 
 const HEARTBEAT_INTERVAL_MS = 60 * 1000;
+const ROOM_AUTO_REFRESH_INTERVAL_MS = 5000;
+const MAX_TRANSFER_AMOUNT = 10000000000;
 
 Page({
   data: {
@@ -14,6 +16,11 @@ Page({
     seatVariant: "md",
     seatEditMode: false,
     seatSwapFromOpenid: "",
+    tableShape: "circle",
+    tableClipStyle: "",
+    tableBoxStyle: "",
+    tableRingBoxStyle: "",
+    tableAreaHeight: 630,
     logs: [],
     meOpenid: "",
     loading: true,
@@ -46,7 +53,14 @@ Page({
   _entered: false,
   _showCodeTimer: null,
   _prefetchRoomCodeTimer: null,
+  _transferWarmupTimer: null,
+  _transferWarmed: false,
+  _silentRefreshTimer: null,
+  _roomAutoRefreshTimer: null,
+  _refreshingRoomAuto: false,
   _enterTimer: null,
+  _avatarTempUrlCache: null,
+  _lastRealMembersPlain: [],
 
   async onLoad(options) {
     this._unloaded = false;
@@ -62,6 +76,9 @@ Page({
       this.setData({ loading: false });
       return;
     }
+    this._lastRealMembersPlain = [];
+    this._transferWarmed = false;
+    this._avatarTempUrlCache = new Map();
     this.setData({ roomId });
 
     // 让页面先完成过渡动画再发起接口请求，避免打开页卡顿
@@ -85,24 +102,7 @@ Page({
         await callFunction("joinRoom", { roomId });
         await this.refresh({ throwOnError: true });
       }
-      this._entered = true;
-      this.startHeartbeat();
-      this.schedulePrefetchRoomCode();
-      try {
-        wx.setStorageSync("activeRoomId", roomId);
-      } catch {
-        // ignore
-      }
-      if (String(options.showCode) === "1") {
-        // 避免页面切换的“松手点击”误触导致弹窗立即关闭/闪一下
-        if (this._showCodeTimer) clearTimeout(this._showCodeTimer);
-        this._showCodeTimer = setTimeout(() => {
-          if (this._unloaded) return;
-          if (!this.data.roomId) return;
-          if (this.data.roomCodeVisible) return;
-          this.onShowRoomCode();
-        }, 200);
-      }
+      this.afterEnterRoom(roomId, options);
     } catch (e) {
       const msg = String(e?.message || "");
       if (msg === "请先授权登录") {
@@ -115,22 +115,51 @@ Page({
       const alreadyInRoomMatch = msg.match(/你已在房间\\s*([a-z0-9]+)/i);
       const activeRoomId = String(alreadyInRoomMatch?.[1] || "").trim();
       if (activeRoomId) {
+        this.setData({ loading: false });
         wx.showModal({
           title: "已在其他房间",
-          content: `你当前在房间 ${activeRoomId}，需要先退房才能加入新房间。是否前往当前房间？`,
-          confirmText: "去房间",
-          cancelText: "回首页",
-          success: (res) => {
+          content: `当前在房间 ${activeRoomId}。是否返回该房间？选择“留在新房间”将退出旧房间并加入当前房间。`,
+          confirmText: "返回旧房间",
+          cancelText: "留在新房间",
+          success: async (res) => {
             if (res.confirm) {
               wx.redirectTo({
                 url: `/pages/room/room?roomId=${encodeURIComponent(activeRoomId)}`
               });
-            } else {
-              wx.reLaunch({ url: "/pages/index/index" });
+              return;
+            }
+            wx.showLoading({ title: "切换房间中", mask: true });
+            this.setData({ loading: true });
+            this._entered = false;
+            this.stopHeartbeat();
+            this.stopAutoRefresh();
+            try {
+              await callFunction("leaveRoom", { roomId: activeRoomId });
+              await callFunction("joinRoom", { roomId });
+              await this.refresh({ throwOnError: true });
+              this.afterEnterRoom(roomId, options);
+              wx.showToast({ title: "已进入新房间", icon: "success" });
+            } catch (switchErr) {
+              console.error(switchErr);
+              this.setData({ loading: false });
+              wx.showModal({
+                title: "切换失败",
+                content: switchErr?.message || "切换房间失败，是否返回旧房间？",
+                confirmText: "返回旧房间",
+                cancelText: "留在当前页",
+                success: (fallbackRes) => {
+                  if (fallbackRes.confirm) {
+                    wx.redirectTo({
+                      url: `/pages/room/room?roomId=${encodeURIComponent(activeRoomId)}`
+                    });
+                  }
+                }
+              });
+            } finally {
+              wx.hideLoading();
             }
           }
         });
-        this.setData({ loading: false });
         return;
       }
 
@@ -169,7 +198,9 @@ Page({
   },
 
   onShow() {
-    if (this._entered) this.startHeartbeat();
+    if (!this._entered) return;
+    this.startHeartbeat();
+    this.startAutoRefresh();
   },
 
   onHide() {
@@ -185,7 +216,16 @@ Page({
       clearTimeout(this._prefetchRoomCodeTimer);
       this._prefetchRoomCodeTimer = null;
     }
+    if (this._transferWarmupTimer) {
+      clearTimeout(this._transferWarmupTimer);
+      this._transferWarmupTimer = null;
+    }
+    if (this._silentRefreshTimer) {
+      clearTimeout(this._silentRefreshTimer);
+      this._silentRefreshTimer = null;
+    }
     this.stopHeartbeat();
+    this.stopAutoRefresh();
   },
 
   onUnload() {
@@ -203,7 +243,16 @@ Page({
       clearTimeout(this._prefetchRoomCodeTimer);
       this._prefetchRoomCodeTimer = null;
     }
+    if (this._transferWarmupTimer) {
+      clearTimeout(this._transferWarmupTimer);
+      this._transferWarmupTimer = null;
+    }
+    if (this._silentRefreshTimer) {
+      clearTimeout(this._silentRefreshTimer);
+      this._silentRefreshTimer = null;
+    }
     this.stopHeartbeat();
+    this.stopAutoRefresh();
   },
 
   startHeartbeat() {
@@ -229,6 +278,54 @@ Page({
     }
   },
 
+  startAutoRefresh() {
+    this.stopAutoRefresh();
+    const roomId = String(this.data.roomId || "").trim();
+    if (!roomId) return;
+    const tick = async () => {
+      if (this._unloaded || !this._entered || this._refreshingRoomAuto) return;
+      this._refreshingRoomAuto = true;
+      try {
+        await this.refresh({ silent: true });
+      } catch {
+        // ignore
+      } finally {
+        this._refreshingRoomAuto = false;
+      }
+    };
+    tick();
+    this._roomAutoRefreshTimer = setInterval(tick, ROOM_AUTO_REFRESH_INTERVAL_MS);
+  },
+
+  stopAutoRefresh() {
+    if (this._roomAutoRefreshTimer) {
+      clearInterval(this._roomAutoRefreshTimer);
+      this._roomAutoRefreshTimer = null;
+    }
+    this._refreshingRoomAuto = false;
+  },
+
+  afterEnterRoom(roomId, options = {}) {
+    this._entered = true;
+    this.startHeartbeat();
+    this.startAutoRefresh();
+    this.schedulePrefetchRoomCode();
+    this.scheduleTransferWarmup();
+    try {
+      wx.setStorageSync("activeRoomId", roomId);
+    } catch {
+      // ignore
+    }
+    if (String(options.showCode) !== "1") return;
+    if (this._showCodeTimer) clearTimeout(this._showCodeTimer);
+    this._showCodeTimer = setTimeout(() => {
+      if (this._unloaded) return;
+      if (!this.data.roomId) return;
+      if (this.data.roomCodeVisible) return;
+      this.onShowRoomCode();
+    }, 200);
+  },
+
   onShareAppMessage() {
     const imageUrl = String(this.data.roomCodeUrl || "").trim();
     return {
@@ -247,6 +344,28 @@ Page({
       this._prefetchRoomCodeTimer = null;
       this.prefetchRoomCode();
     }, 400);
+  },
+
+  scheduleTransferWarmup() {
+    if (this._unloaded || this._transferWarmed) return;
+    if (this._transferWarmupTimer) clearTimeout(this._transferWarmupTimer);
+    this._transferWarmupTimer = setTimeout(() => {
+      this._transferWarmupTimer = null;
+      callFunction("transferScore", { warmup: true })
+        .then(() => {
+          this._transferWarmed = true;
+        })
+        .catch(() => {});
+    }, 650);
+  },
+
+  scheduleSilentRefresh(delay = 240) {
+    if (this._unloaded) return;
+    if (this._silentRefreshTimer) clearTimeout(this._silentRefreshTimer);
+    this._silentRefreshTimer = setTimeout(() => {
+      this._silentRefreshTimer = null;
+      this.refresh({ silent: true }).catch(() => {});
+    }, Math.max(0, Number(delay) || 0));
   },
 
   async ensureRoomCodeUrl(options = {}) {
@@ -307,36 +426,281 @@ Page({
     if (!Number.isFinite(n) || n <= 0) return "md";
     if (n <= 6) return "lg";
     if (n <= 10) return "md";
-    return "sm";
+    if (n <= 13) return "sm";
+    if (n <= 24) return "xs";
+    return "xxs";
   },
 
   attachSeatLayout(members, meOpenid) {
     const list = Array.isArray(members) ? members : [];
     const n = list.length;
+    const seatVariant = this.getSeatVariant(n);
+    const seatOffsetYByVariant = {
+      lg: 38,
+      md: 36,
+      sm: 34,
+      xs: 26,
+      xxs: 22
+    };
+    let seatOffsetY = Number(seatOffsetYByVariant[seatVariant] ?? 34);
+    if (n === 2) {
+      seatOffsetY = Math.max(18, seatOffsetY - 12);
+    } else if (n === 3) {
+      seatOffsetY = Math.max(20, seatOffsetY - 8);
+    }
     if (n === 0) {
-      return { seatVariant: this.getSeatVariant(0), members: [] };
+      return {
+        seatVariant,
+        members: [],
+        tableShape: "circle",
+        tableClipStyle: "",
+        tableBoxStyle: "",
+        tableRingBoxStyle: "",
+        tableAreaHeight: 630
+      };
     }
 
-    const seatVariant = this.getSeatVariant(n);
-    const radiusPercent = seatVariant === "lg" ? 37.5 : seatVariant === "md" ? 39 : 40;
-    const step = (Math.PI * 2) / n;
-    const meIdx = list.findIndex((m) => String(m?.openid || "").trim() === String(meOpenid || "").trim());
-    // 让“我”默认坐在正下方（更符合牌桌视角）
-    const baseAngle = meIdx >= 0 ? Math.PI / 2 - meIdx * step : -Math.PI / 2;
+    const meKey = String(meOpenid || "").trim();
+    const meIdx = meKey ? list.findIndex((m) => String(m?.openid || "").trim() === meKey) : -1;
+    const posIndexOf = (idx) => {
+      if (meIdx < 0) return idx;
+      return (idx - meIdx + n) % n;
+    };
+
+    const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
+    const clampPercent = (v) => clamp(v, 4, 96);
+    const toPoint = (x, y) => ({ x: clampPercent(x), y: clampPercent(y) });
+    const toSeatStyle = (pt) =>
+      `left:${pt.x.toFixed(2)}%;top:${pt.y.toFixed(2)}%;transform:translate(-50%,-50%) translateY(${seatOffsetY}rpx);`;
+    const clipStyleFromPoints = (pts) => {
+      const points = Array.isArray(pts) ? pts : [];
+      if (points.length < 3) return "";
+      const str = points
+        .map((p) => `${Number(p.x).toFixed(2)}% ${Number(p.y).toFixed(2)}%`)
+        .join(", ");
+      return `-webkit-clip-path: polygon(${str}); clip-path: polygon(${str});`;
+    };
+    const insetStyle = ({ left, top, right, bottom }) => {
+      const l = clamp(Number(left), 0, 50);
+      const r = clamp(Number(right), 50, 100);
+      const t = clamp(Number(top), 0, 50);
+      const b = clamp(Number(bottom), 50, 100);
+      return `left:${l.toFixed(2)}%;top:${t.toFixed(2)}%;right:${(100 - r).toFixed(2)}%;bottom:${(100 - b).toFixed(2)}%;`;
+    };
+
+    let tableShape = "circle";
+    let tableClipStyle = "";
+    let tableBoxStyle = "";
+    let tableRingBoxStyle = "";
+    const effectiveN = Math.min(50, Math.max(0, n));
+    let tableAreaHeight = 630;
+    if (effectiveN >= 5 && effectiveN <= 10) {
+      tableAreaHeight = 630 + (effectiveN - 4) * 36;
+    } else if (effectiveN > 10) {
+      const over = effectiveN - 10;
+      tableAreaHeight = 1080 + over * 34;
+      if (effectiveN > 20) {
+        tableAreaHeight += (effectiveN - 20) * 12;
+      }
+    }
+    tableAreaHeight = Math.min(2860, tableAreaHeight);
+    const seatPoints = new Array(n);
+
+    if (n <= 3) {
+      const radiusPercent = n <= 2 ? 32 : seatVariant === "lg" ? 37.5 : seatVariant === "md" ? 39 : 40;
+      tableShape = n === 1 ? "circle" : n === 2 ? "rect" : "poly";
+      const step = (Math.PI * 2) / n;
+      for (let i = 0; i < n; i++) {
+        const angle = Math.PI / 2 + i * step;
+        const left = 50 + radiusPercent * Math.cos(angle);
+        const sin = Math.sin(angle);
+        const yScale = n === 3 && sin < 0 ? 0.55 : 1;
+        const top = 50 + radiusPercent * sin * yScale;
+        seatPoints[i] = toPoint(left, top);
+      }
+      if (n === 2) {
+        tableAreaHeight = Math.max(tableAreaHeight, 700);
+        const dims = { left: 14, right: 86, top: 18, bottom: 82 };
+        tableBoxStyle = insetStyle(dims);
+        tableRingBoxStyle = insetStyle({ left: dims.left + 3, right: dims.right - 3, top: dims.top + 3, bottom: dims.bottom - 3 });
+        // 两人：分别坐在长方形上下两侧（对坐）
+        seatPoints[0] = toPoint(50, dims.bottom);
+        seatPoints[1] = toPoint(50, dims.top);
+      } else if (n === 3) {
+        tableAreaHeight = Math.max(tableAreaHeight, 720);
+        tableShape = "circle";
+        const dims = { left: 11, right: 89, top: 12, bottom: 88 };
+        tableBoxStyle = insetStyle(dims);
+        tableRingBoxStyle = insetStyle({ left: dims.left + 3, right: dims.right - 3, top: dims.top + 3, bottom: dims.bottom - 3 });
+        tableClipStyle = "";
+      }
+    } else if (n <= 10) {
+      tableShape = "poly";
+      const step = (Math.PI * 2) / n;
+      const edgeRadiusPercent =
+        seatVariant === "lg" ? 36 : seatVariant === "md" ? 38 : seatVariant === "sm" ? 40 : seatVariant === "xs" ? 42 : 43;
+      const vertexRadiusPercent = edgeRadiusPercent / Math.cos(Math.PI / n);
+
+      for (let i = 0; i < n; i++) {
+        const angle = Math.PI / 2 + i * step;
+        const left = 50 + edgeRadiusPercent * Math.cos(angle);
+        const top = 50 + edgeRadiusPercent * Math.sin(angle);
+        seatPoints[i] = toPoint(left, top);
+      }
+
+      const vertices = [];
+      const baseVertexAngle = Math.PI / 2 - step / 2;
+      for (let i = 0; i < n; i++) {
+        const angle = baseVertexAngle + i * step;
+        const left = 50 + vertexRadiusPercent * Math.cos(angle);
+        const top = 50 + vertexRadiusPercent * Math.sin(angle);
+        vertices.push(toPoint(left, top));
+      }
+      tableClipStyle = clipStyleFromPoints(vertices);
+    } else {
+      tableShape = "rect";
+      const extra = clamp(effectiveN - 10, 0, 40);
+      const verticalPadRpx = clamp(72 + extra * 0.9, 72, 118);
+      const verticalPadPercent = clamp((verticalPadRpx / Math.max(1, tableAreaHeight)) * 100, 3.2, 10.5);
+      const dims = {
+        left: clamp(14.5 - extra * 0.18, 6, 14.5),
+        right: clamp(85.5 + extra * 0.18, 85.5, 94),
+        top: verticalPadPercent,
+        bottom: 100 - verticalPadPercent
+      };
+      tableBoxStyle = insetStyle(dims);
+      tableRingBoxStyle = insetStyle({
+        left: dims.left + 2.2,
+        right: dims.right - 2.2,
+        top: dims.top + 2.2,
+        bottom: dims.bottom - 2.2
+      });
+
+      const left = dims.left;
+      const right = dims.right;
+      const top = dims.top;
+      const bottom = dims.bottom;
+      const horizontalTarget = effectiveN >= 14 ? 4 : 3;
+      const topCount = horizontalTarget;
+      const bottomCount = horizontalTarget;
+      const sideRemain = n - topCount - bottomCount;
+      const rightCount = Math.ceil(sideRemain / 2);
+      const leftCount = Math.floor(sideRemain / 2);
+
+      const distributeBetween = (start, end, count) => {
+        if (!count) return [];
+        const span = end - start;
+        return Array.from({ length: count }, (_, index) => start + (span * (index + 1)) / (count + 1));
+      };
+
+      const edgeInsetX = clamp((right - left) * 0.08, 4.5, 8.5);
+      const edgeInsetY = clamp((bottom - top) * 0.04, 2.2, 6.5);
+      const bottomCenterGap = clamp((right - left) * 0.18, 10, 15.5);
+      const cornerInsetX = clamp((right - left) * 0.055, 3.8, 6.8);
+      const sideCornerGap = clamp((bottom - top) * 0.05, 3.6, 7.2);
+      const topLeft = left + edgeInsetX;
+      const topRight = right - edgeInsetX;
+      const topCornerLeft = left + cornerInsetX;
+      const topCornerRight = right - cornerInsetX;
+      const sideTop = top + edgeInsetY + sideCornerGap;
+      const sideBottom = bottom - edgeInsetY - sideCornerGap;
+      const bottomLeftLimit = 50 - bottomCenterGap;
+      const bottomRightLimit = 50 + bottomCenterGap;
+
+      const points = [];
+
+      const buildTopXs = (count) => {
+        if (!count) return [];
+        if (count === 1) return [50];
+        if (count === 2) return [topCornerLeft, topCornerRight];
+        if (count === 3) return [topCornerLeft, 50, topCornerRight];
+        const innerInset = clamp((right - left) * 0.13, 5.5, 8.5);
+        const innerXs = distributeBetween(topCornerLeft + innerInset, topCornerRight - innerInset, count - 2);
+        return [topCornerLeft, ...innerXs, topCornerRight];
+      };
+
+      const buildBottomRightXs = (count) => {
+        if (!count) return [];
+        if (count === 1) return [topCornerRight];
+        const innerRightLimit = topCornerRight - clamp((right - left) * 0.06, 3, 5);
+        const innerXs = distributeBetween(bottomRightLimit, innerRightLimit, count - 1);
+        return [...innerXs, topCornerRight];
+      };
+
+      const buildBottomLeftXs = (count) => {
+        if (!count) return [];
+        if (count === 1) return [topCornerLeft];
+        const innerLeftStart = topCornerLeft + clamp((right - left) * 0.06, 3, 5);
+        const innerXs = distributeBetween(innerLeftStart, bottomLeftLimit, count - 1);
+        return [topCornerLeft, ...innerXs];
+      };
+
+      const buildSideYs = (count) => {
+        if (!count) return [];
+        if (count === 1) return [(sideTop + sideBottom) / 2];
+        const span = sideBottom - sideTop;
+        const edgeRatio = count >= 5 ? 0.13 : count === 4 ? 0.15 : 0.18;
+        return Array.from({ length: count }, (_, index) => {
+          const t = index / (count - 1);
+          const mapped = edgeRatio + t * (1 - edgeRatio * 2);
+          return sideTop + span * mapped;
+        });
+      };
+
+      // 底边：自己固定中间，其余位置左右拉开，避免和“我”重叠。
+      points.push(toPoint(50, bottom));
+      const bottomRemain = Math.max(0, bottomCount - 1);
+      const bottomLeftCount = Math.ceil(bottomRemain / 2);
+      const bottomRightCount = bottomRemain - bottomLeftCount;
+      const bottomRightXs = buildBottomRightXs(bottomRightCount);
+      const bottomLeftXs = buildBottomLeftXs(bottomLeftCount);
+      for (const x of bottomRightXs) {
+        points.push(toPoint(x, bottom));
+      }
+
+      // 右边：自下向上均匀排布。
+      const rightYs = buildSideYs(rightCount).reverse();
+      for (const y of rightYs) {
+        points.push(toPoint(right, y));
+      }
+
+      // 顶边：11-13 人每边 3 个，14+ 每边 4 个。
+      const topXs = buildTopXs(topCount).reverse();
+      for (const x of topXs) {
+        points.push(toPoint(x, top));
+      }
+
+      // 左边：自上向下均匀排布。
+      const leftYs = buildSideYs(leftCount);
+      for (const y of leftYs) {
+        points.push(toPoint(left, y));
+      }
+
+      // 底边左侧：由左往中间回收，闭合环形。
+      for (const x of bottomLeftXs) {
+        points.push(toPoint(x, bottom));
+      }
+
+      for (let i = 0; i < n; i++) {
+        seatPoints[i] = points[i] || toPoint(50, bottom);
+      }
+    }
 
     const withSeat = list.map((m, idx) => {
-      const angle = baseAngle + idx * step;
-      const left = 50 + radiusPercent * Math.cos(angle);
-      const top = 50 + radiusPercent * Math.sin(angle);
-      const leftText = `${left.toFixed(2)}%`;
-      const topText = `${top.toFixed(2)}%`;
-      return {
-        ...m,
-        seatStyle: `left:${leftText};top:${topText};`
-      };
+      const p = posIndexOf(idx);
+      const pt = seatPoints[p] || toPoint(50, 86);
+      return { ...m, seatStyle: toSeatStyle(pt) };
     });
 
-    return { seatVariant, members: withSeat };
+    return {
+      seatVariant,
+      members: withSeat,
+      tableShape,
+      tableClipStyle,
+      tableBoxStyle,
+      tableRingBoxStyle,
+      tableAreaHeight
+    };
   },
 
   getSeatOrderKey(roomId) {
@@ -410,20 +774,29 @@ Page({
     try {
       const res = await callFunction("getRoomDetail", { roomId: this.data.roomId });
       const rawMembers = res.members || [];
-      const cloudAvatars = rawMembers.map((member) => member.avatarUrl).filter(isCloudFileId);
-      let avatarMap = new Map();
-      if (cloudAvatars.length) {
-        avatarMap = await resolveTempUrls(cloudAvatars);
+      const cloudAvatars = Array.from(new Set(rawMembers.map((member) => member.avatarUrl).filter(isCloudFileId)));
+      if (!this._avatarTempUrlCache) this._avatarTempUrlCache = new Map();
+      const missingCloudAvatars = cloudAvatars.filter((fileID) => !this._avatarTempUrlCache.has(fileID));
+      if (missingCloudAvatars.length) {
+        const fetchedMap = await resolveTempUrls(missingCloudAvatars);
+        for (const fileID of missingCloudAvatars) {
+          this._avatarTempUrlCache.set(fileID, fetchedMap.get(fileID) || "");
+        }
       }
       const membersPlain = rawMembers.map((member) => ({
         ...member,
-        avatarDisplayUrl: avatarMap.get(member.avatarUrl) || member.avatarUrl || ""
+        avatarDisplayUrl: isCloudFileId(member.avatarUrl)
+          ? this._avatarTempUrlCache.get(member.avatarUrl) || ""
+          : member.avatarUrl || ""
       }));
+      this._lastRealMembersPlain = membersPlain;
       const orderedPlain = this.applySeatOrder(membersPlain, this.data.roomId);
       const seatLayout = this.attachSeatLayout(orderedPlain, res.meOpenid);
       const members = seatLayout.members;
       const nameByOpenid = new Map((members || []).map((m) => [m.openid, m.nickName || m.openid?.slice(0, 6) || "成员"]));
-      const logs = (res.logs || []).map((log) => {
+      const logs = [...(res.logs || [])]
+        .sort((a, b) => Number(b?.createdAt || 0) - Number(a?.createdAt || 0))
+        .map((log) => {
         const normalized = {
           ...log,
           time: formatTime(log.createdAt),
@@ -433,12 +806,17 @@ Page({
           ...normalized,
           parts: this.buildLogParts(normalized, nameByOpenid)
         };
-      });
+        });
       const isOwner = res.room?.ownerOpenid === res.meOpenid;
       const patch = {
         room: res.room,
         members,
         seatVariant: seatLayout.seatVariant,
+        tableShape: seatLayout.tableShape,
+        tableClipStyle: seatLayout.tableClipStyle,
+        tableBoxStyle: seatLayout.tableBoxStyle,
+        tableRingBoxStyle: seatLayout.tableRingBoxStyle,
+        tableAreaHeight: seatLayout.tableAreaHeight,
         logs,
         meOpenid: res.meOpenid,
         isOwner
@@ -449,7 +827,9 @@ Page({
       console.error(e);
       if (!silent) this.setData({ loading: false });
       if (throwOnError) throw e;
-      wx.showToast({ title: e?.message || "刷新失败", icon: "none" });
+      if (!silent) {
+        wx.showToast({ title: e?.message || "刷新失败", icon: "none" });
+      }
     }
   },
 
@@ -569,9 +949,34 @@ Page({
     this.setData({
       members: seatLayout.members,
       seatVariant: seatLayout.seatVariant,
+      tableShape: seatLayout.tableShape,
+      tableClipStyle: seatLayout.tableClipStyle,
+      tableBoxStyle: seatLayout.tableBoxStyle,
+      tableRingBoxStyle: seatLayout.tableRingBoxStyle,
+      tableAreaHeight: seatLayout.tableAreaHeight,
       seatSwapFromOpenid: ""
     });
     wx.showToast({ title: "已交换座位", icon: "success" });
+  },
+
+  rebuildSeatLayout() {
+    const roomId = this.data.roomId;
+    const base =
+      Array.isArray(this._lastRealMembersPlain) && this._lastRealMembersPlain.length
+        ? this._lastRealMembersPlain
+        : (this.data.members || []).map((m) => ({ ...m, seatStyle: undefined }));
+    const orderedPlain = this.applySeatOrder(base, roomId);
+    const seatLayout = this.attachSeatLayout(orderedPlain, this.data.meOpenid);
+    this.setData({
+      members: seatLayout.members,
+      seatVariant: seatLayout.seatVariant,
+      tableShape: seatLayout.tableShape,
+      tableClipStyle: seatLayout.tableClipStyle,
+      tableBoxStyle: seatLayout.tableBoxStyle,
+      tableRingBoxStyle: seatLayout.tableRingBoxStyle,
+      tableAreaHeight: seatLayout.tableAreaHeight,
+      seatSwapFromOpenid: ""
+    });
   },
 
   onTransferAmountInput(e) {
@@ -613,35 +1018,40 @@ Page({
     };
     log.parts = this.buildLogParts(log, nameByOpenid);
 
-    let logs = [...(this.data.logs || []), log];
-    if (logs.length > 50) logs = logs.slice(logs.length - 50);
+    let logs = [log, ...(this.data.logs || [])];
+    if (logs.length > 50) logs = logs.slice(0, 50);
 
     this.setData({ members, logs });
   },
 
   async confirmTransfer() {
+    if (this.data.transferring) return;
     const amount = parseInt(this.data.transferAmount, 10);
     if (!Number.isInteger(amount) || amount <= 0) {
       wx.showToast({ title: "请输入正整数", icon: "none" });
       return;
     }
+    if (amount > MAX_TRANSFER_AMOUNT) {
+      wx.showToast({ title: "单次最多转移100亿", icon: "none" });
+      return;
+    }
     const toOpenid = this.data.transferTo?.openid;
     if (!toOpenid) return;
 
+    this.applyLocalTransfer({ toOpenid, amount, createdAt: Date.now() });
+    this.closeTransferModal(true);
     this.setData({ transferring: true });
     try {
-      const res = await callFunction("transferScore", {
+      await callFunction("transferScore", {
         roomId: this.data.roomId,
         toOpenid,
         amount
       });
-      this.applyLocalTransfer({ toOpenid, amount, createdAt: res?.createdAt });
-      this.closeTransferModal(true);
       wx.showToast({ title: "已转移", icon: "success" });
-      // 后台校准一次，避免并发转账造成的本地偏差（不阻塞交互）
-      this.refresh({ silent: true }).catch(() => {});
+      this.scheduleSilentRefresh(180);
     } catch (e) {
       console.error(e);
+      this.scheduleSilentRefresh(60);
       wx.showToast({ title: e?.message || "转移失败", icon: "none" });
     } finally {
       this.setData({ transferring: false });

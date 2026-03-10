@@ -116,10 +116,14 @@ Page({
         roundRows = members.map((m) => {
           const openid = String(m.openid || "").trim();
           const nickName = String(m.nickName || "").trim() || (openid ? openid.slice(0, 6) : "成员");
+          const joinedAt = Number(m.joinedAt || 0) || 0;
           const cells = rounds.map((r) => {
+            const roundStartAt = Number(r?.startAt || r?.endAt || 0) || 0;
+            const notJoinedYet = joinedAt > 0 && roundStartAt > 0 && roundStartAt < joinedAt;
+            if (notJoinedYet) return { text: "-", class: "cell-na" };
             const raw = r?.deltas ? r.deltas[openid] : 0;
             const v = Number(raw || 0);
-            if (!Number.isFinite(v) || v === 0) return { text: "", class: "cell-empty" };
+            if (!Number.isFinite(v) || v === 0) return { text: "0", class: "cell-empty" };
             if (v > 0) return { text: `+${v}`, class: "cell-pos" };
             return { text: `${v}`, class: "cell-neg" };
           });

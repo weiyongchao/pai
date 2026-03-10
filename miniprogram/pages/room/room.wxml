@@ -6,57 +6,63 @@
     </view>
   </view>
 
-  <view wx:else class="content">
-    <view class="card">
-      <view class="row space-between section-head">
-        <view class="section-title">成员</view>
-        <view class="seat-action {{seatEditMode ? 'seat-action-on' : ''}}" bindtap="toggleSeatEditMode">
-          {{seatEditMode ? '完成' : '调整座位'}}
-        </view>
-      </view>
-      <view class="table-area">
-        <view class="table-bg"></view>
-        <view class="table-ring"></view>
-
-        <view class="table-center" bindtap="onShowRoomCode">
-          <view class="center-plus">+</view>
-          <view class="center-text">邀请</view>
-          <view class="center-sub muted">{{roomId}}</view>
-        </view>
-
-        <view
-          class="seat seat-{{seatVariant}} {{seatEditMode ? 'seat-edit' : ''}} {{seatSwapFromOpenid === item.openid ? 'seat-selected' : ''}}"
-          wx:for="{{members}}"
-          wx:key="openid"
-          style="{{item.seatStyle}}"
-          bindtap="onTapMember"
-          data-openid="{{item.openid}}"
-        >
-          <image class="seat-avatar" src="{{item.avatarDisplayUrl}}" mode="aspectFill"></image>
-          <view class="seat-name">{{item.nickName}}</view>
-          <view class="seat-score {{item.score < 0 ? 'score-neg' : (item.score > 0 ? 'score-pos' : 'score-zero')}}">{{item.score}}</view>
-          <view wx:if="{{item.openid === meOpenid}}" class="seat-me-tag">我</view>
-        </view>
-      </view>
-      <view wx:if="{{seatEditMode}}" class="muted seat-hint">提示：点击两位成员可交换座位</view>
-      <view class="muted tips-line">点他人头像转积分 · 点自己改资料 · 点中间邀请发房间码</view>
-    </view>
-
-    <view class="card logs-card">
-      <view class="section-title">流水</view>
-      <scroll-view scroll-y class="logs-scroll" show-scrollbar="false">
-        <view wx:if="{{logs.length === 0}}" class="muted">暂无记录</view>
-        <view wx:else>
-          <view class="log" wx:for="{{logs}}" wx:key="_id">
-            <view class="muted">{{item.time}}</view>
-            <view class="log-text">
-              <text wx:for="{{item.parts}}" wx:for-item="part" wx:for-index="idx" wx:key="idx" class="{{part.class}}">{{part.text}}</text>
+  <scroll-view wx:else class="content-scroll" scroll-y enable-flex="true">
+    <view class="content">
+      <view class="card">
+        <view class="row space-between section-head">
+          <view class="section-title">成员</view>
+          <view class="row seat-actions">
+            <view class="seat-action {{seatEditMode ? 'seat-action-on' : ''}}" bindtap="toggleSeatEditMode">
+              {{seatEditMode ? '完成' : '调整座位'}}
             </view>
           </view>
         </view>
-      </scroll-view>
+        <view class="table-area" style="height: {{tableAreaHeight}}rpx;">
+          <view class="table-bg table-bg-{{tableShape}}" style="{{tableBoxStyle}} {{tableClipStyle}}"></view>
+          <view class="table-ring table-ring-{{tableShape}}" style="{{tableRingBoxStyle}} {{tableClipStyle}}"></view>
+
+          <view class="table-center" bindtap="onShowRoomCode">
+            <view class="center-plus">+</view>
+            <view class="center-text">邀请</view>
+            <view class="center-sub muted">{{roomId}}</view>
+          </view>
+
+          <view
+            class="seat seat-{{seatVariant}} {{seatEditMode ? 'seat-edit' : ''}} {{seatSwapFromOpenid === item.openid ? 'seat-selected' : ''}}"
+            wx:for="{{members}}"
+            wx:key="openid"
+            style="{{item.seatStyle}}"
+            bindtap="onTapMember"
+            data-openid="{{item.openid}}"
+          >
+            <image wx:if="{{item.avatarDisplayUrl}}" class="seat-avatar" src="{{item.avatarDisplayUrl}}" mode="aspectFill"></image>
+            <view wx:else class="seat-avatar seat-avatar-fallback"></view>
+            <view class="seat-name">{{item.nickName}}</view>
+            <view class="seat-score {{item.score < 0 ? 'score-neg' : (item.score > 0 ? 'score-pos' : 'score-zero')}}">{{item.score}}</view>
+            <view wx:if="{{item.openid === meOpenid}}" class="seat-me-tag">我</view>
+          </view>
+        </view>
+        <view style="height: 56rpx"></view>
+        <view wx:if="{{seatEditMode}}" class="muted seat-hint">提示：点击两位成员可交换座位</view>
+        <view class="muted tips-line">点他人头像转积分 · 点自己头像改信息 </view>
+      </view>
+
+      <view class="card logs-card">
+        <view class="section-title">流水</view>
+        <scroll-view scroll-y class="logs-scroll" show-scrollbar="false">
+          <view wx:if="{{logs.length === 0}}" class="muted">暂无记录</view>
+          <view wx:else>
+            <view class="log" wx:for="{{logs}}" wx:key="_id">
+              <view class="muted">{{item.time}}</view>
+              <view class="log-text">
+                <text wx:for="{{item.parts}}" wx:for-item="part" wx:for-index="idx" wx:key="idx" class="{{part.class}}">{{part.text}}</text>
+              </view>
+            </view>
+          </view>
+        </scroll-view>
+      </view>
     </view>
-  </view>
+  </scroll-view>
 
   <!-- 底部操作栏 -->
   <view wx:if="{{!loading}}" class="footer">
@@ -79,15 +85,17 @@
 
   <!-- 房间码弹窗 -->
   <view wx:if="{{roomCodeVisible}}" class="mask" bindtap="closeRoomCode">
-    <view class="modal" catchtap="noop">
+    <view class="modal modal-room-code" catchtap="noop">
       <view class="modal-title">房间小程序码</view>
-      <image wx:if="{{roomCodeUrl}}" class="qrcode" src="{{roomCodeUrl}}" mode="widthFix"></image>
-      <view wx:else class="muted qrcode-tip">
-        <view wx:if="{{roomCodeLoading}}" class="loading-inline">
-          <view class="spinner spinner-sm"></view>
-          <text>生成中…</text>
+      <view class="qrcode-box">
+        <image wx:if="{{roomCodeUrl}}" class="qrcode" src="{{roomCodeUrl}}" mode="aspectFit"></image>
+        <view wx:else class="muted qrcode-tip">
+          <view wx:if="{{roomCodeLoading}}" class="loading-inline">
+            <view class="spinner spinner-sm"></view>
+            <text>生成中…</text>
+          </view>
+          <text wx:else>{{roomCodeError || '暂不可用'}}</text>
         </view>
-        <text wx:else>{{roomCodeError || '暂不可用'}}</text>
       </view>
       <view style="height: 20rpx"></view>
       <button class="btn primary-btn" open-type="share">分享给好友</button>

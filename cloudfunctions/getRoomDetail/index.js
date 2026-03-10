@@ -233,7 +233,7 @@ exports.main = async (event) => {
     };
   });
 
-  const logs = (logsRes.data || []).reverse();
+  const logs = logsRes.data || [];
 
   return {
     meOpenid: OPENID,

@@ -107,10 +107,12 @@ exports.main = async (event) => {
   const memberOpenids = Array.from(new Set(memberDocs.map((m) => String(m.openid || "").trim()).filter(Boolean)));
   const memberUserMap = await getUsersByOpenids(memberOpenids);
   const members = memberOpenids.map((openid) => {
+    const member = memberDocs.find((m) => String(m.openid || "").trim() === openid) || {};
     const user = memberUserMap.get(openid) || {};
     return {
       openid,
-      nickName: user.nickName || openid.slice(0, 6)
+      nickName: user.nickName || openid.slice(0, 6),
+      joinedAt: Number(member.joinedAt || member.updatedAt || 0) || 0
     };
   });
 

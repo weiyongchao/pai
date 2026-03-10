@@ -3,6 +3,7 @@ const cloud = require("wx-server-sdk");
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
 const _ = db.command;
+const MAX_TRANSFER_AMOUNT = 10000000000;
 
 exports.main = async (event) => {
   const { OPENID } = cloud.getWXContext();
@@ -22,6 +23,7 @@ exports.main = async (event) => {
   if (!toOpenid) throw new Error("toOpenid 不能为空");
   if (toOpenid === fromOpenid) throw new Error("不能给自己转移积分");
   if (!Number.isInteger(amount) || amount <= 0) throw new Error("amount 必须为正整数");
+  if (amount > MAX_TRANSFER_AMOUNT) throw new Error("单次最多转移100亿");
 
   const ts = Date.now();
   const fromMemberId = `${roomId}_${fromOpenid}`;
